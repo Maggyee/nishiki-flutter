@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// ============================================================
 /// Nishiki Blog 全局主题配置
@@ -93,6 +92,8 @@ class AppTheme {
     final base = ThemeData(
       brightness: Brightness.light,
       useMaterial3: true,
+      fontFamily: 'NotoSansSCSubset',
+      fontFamilyFallback: const ['NotoSansSCSubset'],
       colorScheme: ColorScheme.fromSeed(
         seedColor: primaryColor,
         brightness: Brightness.light,
@@ -104,10 +105,9 @@ class AppTheme {
 
     return base.copyWith(
       scaffoldBackgroundColor: scaffoldLight,
-      // 使用 Inter 字体 — 现代、可读性极高
-      textTheme: GoogleFonts.interTextTheme(base.textTheme).copyWith(
+      textTheme: base.textTheme.copyWith(
         // 超大标题 — 用于 Hero 区域
-        displayLarge: GoogleFonts.inter(
+        displayLarge: const TextStyle(
           fontSize: 32,
           fontWeight: FontWeight.w800,
           color: darkText,
@@ -115,7 +115,7 @@ class AppTheme {
           letterSpacing: -0.5,
         ),
         // 大标题 — 用于页面标题
-        headlineLarge: GoogleFonts.inter(
+        headlineLarge: const TextStyle(
           fontSize: 28,
           fontWeight: FontWeight.w700,
           color: darkText,
@@ -123,60 +123,60 @@ class AppTheme {
           letterSpacing: -0.3,
         ),
         // 中标题 — 用于文章标题
-        headlineMedium: GoogleFonts.inter(
+        headlineMedium: const TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.w700,
           color: darkText,
           height: 1.3,
         ),
         // 小标题 — 用于区块标题
-        titleLarge: GoogleFonts.inter(
+        titleLarge: const TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w600,
           color: darkText,
           height: 1.4,
         ),
-        titleMedium: GoogleFonts.inter(
+        titleMedium: const TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w600,
           color: darkText,
         ),
-        titleSmall: GoogleFonts.inter(
+        titleSmall: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: mediumText,
         ),
         // 正文 — 阅读舒适
-        bodyLarge: GoogleFonts.inter(
+        bodyLarge: const TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w400,
           color: darkText,
           height: 1.7,
         ),
-        bodyMedium: GoogleFonts.inter(
+        bodyMedium: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w400,
           color: mediumText,
           height: 1.6,
         ),
-        bodySmall: GoogleFonts.inter(
+        bodySmall: const TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w400,
           color: mediumText,
           height: 1.5,
         ),
         // 标签文字
-        labelLarge: GoogleFonts.inter(
+        labelLarge: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: primaryDark,
         ),
-        labelMedium: GoogleFonts.inter(
+        labelMedium: const TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w500,
           color: mediumText,
         ),
-        labelSmall: GoogleFonts.inter(
+        labelSmall: const TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w600,
           color: primaryDark,
@@ -190,7 +190,7 @@ class AppTheme {
         backgroundColor: scaffoldLight,
         surfaceTintColor: Colors.transparent,
         centerTitle: false,
-        titleTextStyle: GoogleFonts.inter(
+        titleTextStyle: const TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w700,
           color: darkText,
@@ -221,19 +221,19 @@ class AppTheme {
           EdgeInsets.symmetric(horizontal: spacingMd),
         ),
         hintStyle: WidgetStatePropertyAll(
-          GoogleFonts.inter(fontSize: 14, color: lightText),
+          const TextStyle(fontSize: 14, color: lightText),
         ),
       ),
       // Chip（分类标签）主题
       chipTheme: ChipThemeData(
         backgroundColor: const Color(0xFFEAF2FB),
         selectedColor: primaryDark,
-        labelStyle: GoogleFonts.inter(
+        labelStyle: const TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
           color: darkText,
         ),
-        secondaryLabelStyle: GoogleFonts.inter(
+        secondaryLabelStyle: const TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
           color: Colors.white,
@@ -252,7 +252,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         indicatorColor: primaryLight,
         labelTextStyle: WidgetStatePropertyAll(
-          GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600),
+          const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
         ),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
@@ -275,6 +275,8 @@ class AppTheme {
     final base = ThemeData(
       brightness: Brightness.dark,
       useMaterial3: true,
+      fontFamily: 'NotoSansSCSubset',
+      fontFamilyFallback: const ['NotoSansSCSubset'],
       colorScheme: ColorScheme.fromSeed(
         seedColor: primaryColor,
         brightness: Brightness.dark,
@@ -285,7 +287,7 @@ class AppTheme {
 
     return base.copyWith(
       scaffoldBackgroundColor: scaffoldDark,
-      textTheme: GoogleFonts.interTextTheme(base.textTheme).apply(
+      textTheme: base.textTheme.apply(
         bodyColor: darkModeText,
         displayColor: darkModeText,
       ),
@@ -295,7 +297,7 @@ class AppTheme {
         backgroundColor: scaffoldDark,
         surfaceTintColor: Colors.transparent,
         centerTitle: false,
-        titleTextStyle: GoogleFonts.inter(
+        titleTextStyle: const TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w700,
           color: darkModeText,
@@ -317,7 +319,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         indicatorColor: primaryColor.withValues(alpha: 0.2),
         labelTextStyle: WidgetStatePropertyAll(
-          GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: darkModeText),
+          const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: darkModeText),
         ),
       ),
     );

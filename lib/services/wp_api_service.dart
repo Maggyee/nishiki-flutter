@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:http/http.dart' as http;
 
@@ -64,7 +65,7 @@ class WpApiService {
     int page = 1,
   }) async {
     final query = <String, String>{
-      'per_page': '20',
+      'per_page': '12',
       'page': '$page',
       '_embed': '1',
       'orderby': 'date',
@@ -104,7 +105,14 @@ class WpApiService {
 
   Future<http.Response> _safeGet(Uri uri) async {
     try {
-      return await _client.get(uri);
+      return await _client.get(uri).timeout(const Duration(seconds: 10));
+    } on TimeoutException catch (e) {
+      throw WpApiException(
+        type: WpApiErrorType.network,
+        userMessage: '请求超时，请检查网络或稍后重试。',
+        technicalMessage: e.toString(),
+        canRetry: true,
+      );
     } catch (e) {
       throw WpApiException(
         type: WpApiErrorType.network,

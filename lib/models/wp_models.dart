@@ -7,6 +7,32 @@ String htmlToText(String? source) {
   return html_parser.parse(source).documentElement?.text.trim() ?? '';
 }
 
+String? _extractFeaturedImageUrl(Map<String, dynamic>? media) {
+  if (media == null) return null;
+
+  final details = media['media_details'];
+  if (details is Map<String, dynamic>) {
+    final sizes = details['sizes'];
+    if (sizes is Map<String, dynamic>) {
+      for (final key in const ['medium_large', 'large', 'medium', 'thumbnail']) {
+        final sizeInfo = sizes[key];
+        if (sizeInfo is Map<String, dynamic>) {
+          final source = sizeInfo['source_url'] as String?;
+          if (source != null && source.isNotEmpty) {
+            return source;
+          }
+        }
+      }
+    }
+  }
+
+  final fallback = media['source_url'] as String?;
+  if (fallback != null && fallback.isNotEmpty) {
+    return fallback;
+  }
+  return null;
+}
+
 class WpCategory {
   const WpCategory({required this.id, required this.name});
 
@@ -32,6 +58,7 @@ class WpPost {
     required this.featuredImageUrl,
     required this.categories,
     required this.link,
+    required this.readMinutes,
   });
 
   final int id;
@@ -43,6 +70,15 @@ class WpPost {
   final String? featuredImageUrl;
   final List<String> categories;
   final String link; // 文章原始链接（用于分享）
+  final int readMinutes;
+
+  static int estimateReadMinutesFromHtml(String html) {
+    final words = htmlToText(html)
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .length;
+    return (words / 220).ceil().clamp(1, 99);
+  }
 
   /// 转换为简要 Map（用于本地收藏存储，不含完整 HTML 内容）
   Map<String, dynamic> toSummaryMap() {
@@ -55,6 +91,7 @@ class WpPost {
       'featuredImageUrl': featuredImageUrl,
       'categories': categories,
       'link': link,
+      'readMinutes': readMinutes,
     };
   }
 
@@ -70,6 +107,7 @@ class WpPost {
       featuredImageUrl: map['featuredImageUrl'] as String?,
       categories: ((map['categories'] as List<dynamic>?) ?? []).cast<String>(),
       link: (map['link'] as String?) ?? '',
+      readMinutes: (map['readMinutes'] as int?) ?? 1,
     );
   }
 
@@ -102,10 +140,11 @@ class WpPost {
         ? ((authorList.first as Map<String, dynamic>)['name'] as String? ?? 'Unknown author')
         : 'Unknown author';
     final featuredImageUrl = (mediaList != null && mediaList.isNotEmpty)
-        ? ((mediaList.first as Map<String, dynamic>)['source_url'] as String?)
+        ? _extractFeaturedImageUrl(mediaList.first as Map<String, dynamic>)
         : null;
     // 获取文章原始链接
     final link = (json['link'] as String?) ?? '';
+    final readMinutes = estimateReadMinutesFromHtml(contentHtml);
 
     return WpPost(
       id: json['id'] as int,
@@ -117,6 +156,7 @@ class WpPost {
       featuredImageUrl: featuredImageUrl,
       categories: categoryNames,
       link: link,
+      readMinutes: readMinutes,
     );
   }
 }

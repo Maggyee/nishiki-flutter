@@ -49,6 +49,10 @@ class HeroArticleCard extends StatelessWidget {
                   CachedNetworkImage(
                     imageUrl: post.featuredImageUrl!,
                     fit: BoxFit.cover,
+                    memCacheWidth: 1200,
+                    memCacheHeight: 700,
+                    maxWidthDiskCache: 1600,
+                    fadeInDuration: const Duration(milliseconds: 120),
                     // 加载中占位 — 品牌色背景 + 脉冲动画
                     placeholder: (context, url) => Container(
                       decoration: const BoxDecoration(
@@ -166,7 +170,7 @@ class HeroArticleCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            '${_readTime(post.contentHtml)} min read',
+                            '${post.readMinutes} min read',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: Colors.white70,
                             ),
@@ -282,7 +286,7 @@ class ArticleCard extends StatelessWidget {
                           ),
                           _buildDot(),
                           Text(
-                            '${_readTime(post.contentHtml)} min',
+                            '${post.readMinutes} min',
                             style: theme.textTheme.labelMedium,
                           ),
                         ],
@@ -301,6 +305,10 @@ class ArticleCard extends StatelessWidget {
                       width: 96,
                       height: 96,
                       fit: BoxFit.cover,
+                      memCacheWidth: 192,
+                      memCacheHeight: 192,
+                      maxWidthDiskCache: 384,
+                      fadeInDuration: const Duration(milliseconds: 120),
                       placeholder: (context, url) => Container(
                         width: 96,
                         height: 96,
@@ -361,17 +369,4 @@ String _formatDate(DateTime date) {
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
   return '${months[date.month - 1]} ${date.day}';
-}
-
-/// 根据 HTML 内容估算阅读时长（分钟）
-int _readTime(String html) {
-  // 去掉 HTML 标签，只保留纯文字
-  final words = html
-      .replaceAll(RegExp(r'<[^>]*>'), ' ')
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((w) => w.isNotEmpty)
-      .length;
-  // 按每分钟 220 词估算
-  return (words / 220).ceil().clamp(1, 99);
 }

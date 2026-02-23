@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
+import 'package:flutter_html_table/flutter_html_table.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -32,7 +33,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     with TickerProviderStateMixin {
   // 滚动控制器 — 用于计算阅读进度
   final _scrollController = ScrollController();
-  double _readProgress = 0.0;
+  final ValueNotifier<double> _readProgress = ValueNotifier<double>(0.0);
 
   // 收藏服务实例
   final _bookmarkService = BookmarkService();
@@ -42,10 +43,6 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
   // 点赞 & 收藏状态
   bool _isLiked = false;
   bool _isSaved = false;
-
-  // 动画控制器 — 点赞心跳动画
-  late AnimationController _likeAnimController;
-  late Animation<double> _likeScaleAnim;
 
   // 动画控制器 — 收藏弹跳动画
   late AnimationController _saveAnimController;
@@ -63,32 +60,25 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     // 监听字体大小变化
     _settingsService.fontScale.addListener(_onFontScaleChanged);
 
-    // 初始化点赞动画（心跳弹性效果）
-    _likeAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    _likeScaleAnim = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.35), weight: 30),
-      TweenSequenceItem(tween: Tween(begin: 1.35, end: 0.9), weight: 30),
-      TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.0), weight: 40),
-    ]).animate(CurvedAnimation(
-      parent: _likeAnimController,
-      curve: Curves.easeOutBack,
-    ));
-
     // 初始化收藏动画（向上弹跳效果）
     _saveAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
     );
     _saveScaleAnim = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.25), weight: 40),
-      TweenSequenceItem(tween: Tween(begin: 1.25, end: 1.0), weight: 60),
-    ]).animate(CurvedAnimation(
-      parent: _saveAnimController,
-      curve: Curves.elasticOut,
-    ));
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.25).chain(
+          CurveTween(curve: Curves.easeOutCubic),
+        ),
+        weight: 40,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.25, end: 1.0).chain(
+          CurveTween(curve: Curves.bounceOut),
+        ),
+        weight: 60,
+      ),
+    ]).animate(_saveAnimController);
 
     // 加载本地存储状态
     _loadLocalState();
@@ -110,7 +100,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     _scrollController.removeListener(_updateProgress);
     _settingsService.fontScale.removeListener(_onFontScaleChanged);
     _scrollController.dispose();
-    _likeAnimController.dispose();
+    _readProgress.dispose();
     _saveAnimController.dispose();
     super.dispose();
   }
@@ -124,16 +114,14 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     if (!_scrollController.hasClients) return;
     final maxScroll = _scrollController.position.maxScrollExtent;
     if (maxScroll <= 0) return;
-    setState(() {
-      _readProgress = (_scrollController.offset / maxScroll).clamp(0.0, 1.0);
-    });
+    final next = (_scrollController.offset / maxScroll).clamp(0.0, 1.0);
+    if ((next - _readProgress.value).abs() >= 0.01) {
+      _readProgress.value = next;
+    }
   }
 
   // ==================== 点赞逻辑 ====================
   Future<void> _handleLike() async {
-    // 播放心跳动画
-    _likeAnimController.forward(from: 0.0);
-
     // 触觉反馈
     HapticFeedback.lightImpact();
 
@@ -146,7 +134,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       // 显示简短提示
       _showFeedbackSnack(
         icon: nowLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-        message: nowLiked ? '已点赞 ❤️' : '已取消点赞',
+        message: nowLiked ? '已点赞' : '已取消点赞',
         color: nowLiked ? const Color(0xFFFF4B6E) : null,
       );
     }
@@ -154,9 +142,6 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
 
   // ==================== 收藏逻辑 ====================
   Future<void> _handleSave() async {
-    // 播放弹跳动画
-    _saveAnimController.forward(from: 0.0);
-
     // 触觉反馈
     HapticFeedback.mediumImpact();
 
@@ -168,10 +153,11 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
 
     if (mounted) {
       setState(() => _isSaved = nowSaved);
+      _saveAnimController.forward(from: 0.0);
 
       _showFeedbackSnack(
         icon: nowSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
-        message: nowSaved ? '已添加到收藏 🔖' : '已从收藏中移除',
+        message: nowSaved ? '已添加到收藏' : '已从收藏中移除',
         color: nowSaved ? AppTheme.primaryColor : null,
       );
     }
@@ -199,7 +185,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       if (mounted) {
         _showFeedbackSnack(
           icon: Icons.check_circle_outline_rounded,
-          message: '链接已复制到剪贴板 📋',
+          message: '链接已复制到剪贴板',
           color: AppTheme.primaryColor,
         );
       }
@@ -270,16 +256,35 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
             left: 0,
             right: 0,
             child: SafeArea(
-              child: _readProgress > 0.01
-                  ? LinearProgressIndicator(
-                      value: _readProgress,
-                      backgroundColor: Colors.transparent,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        AppTheme.primaryColor,
+              child: ValueListenableBuilder<double>(
+                valueListenable: _readProgress,
+                builder: (context, progress, _) {
+                  if (progress <= 0.001) return const SizedBox.shrink();
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      height: 4,
+                      width: MediaQuery.of(context).size.width * progress,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1abc9c), Color(0xFF4EE2C0)],
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          topRight: Radius.circular(4),
+                          bottomRight: Radius.circular(4),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF1abc9c).withValues(alpha: 0.4),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
                       ),
-                      minHeight: 3,
-                    )
-                  : const SizedBox.shrink(),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -290,9 +295,9 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
   // ==================== 有图时的大图 AppBar ====================
   Widget _buildImageAppBar(ThemeData theme) {
     return SliverAppBar(
-      expandedHeight: 300,
+      expandedHeight: 280,
       pinned: true,
-      stretch: true,
+      stretch: false,
       title: null,
       backgroundColor: Colors.transparent,
       // 返回按钮 — 半透明毛玻璃风格
@@ -308,10 +313,14 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       actions: [
         Padding(
           padding: const EdgeInsets.all(8),
-          child: _buildCircleButton(
-            icon: _isSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
-            semanticLabel: _isSaved ? 'Remove bookmark' : 'Bookmark article',
-            onTap: _handleSave,
+          child: AnimatedBuilder(
+            animation: _saveScaleAnim,
+            builder: (context, _) => _buildCircleButton(
+              icon: _isSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
+              semanticLabel: _isSaved ? 'Remove bookmark' : 'Bookmark article',
+              onTap: _handleSave,
+              iconScale: _saveScaleAnim.value,
+            ),
           ),
         ),
         Padding(
@@ -325,10 +334,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       ],
       // 大图区域 — 视差效果
       flexibleSpace: FlexibleSpaceBar(
-        stretchModes: const [
-          StretchMode.zoomBackground,
-          StretchMode.blurBackground,
-        ],
+        stretchModes: const [StretchMode.zoomBackground],
         background: Stack(
           fit: StackFit.expand,
           children: [
@@ -336,6 +342,10 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
             CachedNetworkImage(
               imageUrl: widget.post.featuredImageUrl!,
               fit: BoxFit.cover,
+              memCacheWidth: 1400,
+              memCacheHeight: 900,
+              maxWidthDiskCache: 1800,
+              fadeInDuration: const Duration(milliseconds: 120),
               placeholder: (context, url) => Container(
                 decoration: const BoxDecoration(gradient: AppTheme.heroGradient),
                 child: const Center(
@@ -449,15 +459,18 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
               ),
             )
           : null,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          _hasImage ? 28 : 20,
-          20,
-          40,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              _hasImage ? 28 : 20,
+              20,
+              40,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 无图时在内容区顶部显示分类标签
             if (!_hasImage && widget.post.categories.isNotEmpty) ...[
@@ -496,9 +509,15 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
             const SizedBox(height: 24),
 
             // ==================== 文章 HTML 内容 ====================
-            Html(
-              data: widget.post.contentHtml,
-              style: _buildHtmlStyles(isDark),
+            // 使用 SelectionArea 包装使得文章文本可被用户自由框选复制
+            SelectionArea(
+              child: Html(
+                data: widget.post.contentHtml,
+                style: _buildHtmlStyles(isDark),
+                extensions: [
+                  const TableHtmlExtension(),
+                ],
+              ),
             ),
 
             const SizedBox(height: 40),
@@ -527,6 +546,8 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
               ),
             ],
           ],
+        ),
+      ),
         ),
       ),
     );
@@ -629,9 +650,8 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // ❤️ 点赞按钮 — 带心跳动画
-            _buildAnimatedActionButton(
-              animation: _likeScaleAnim,
+            // ❤️ 点赞按钮 — 带真实的物理跳动效果
+            _BouncingActionButton(
               icon: _isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
               label: _isLiked ? '已赞' : '点赞',
               isActive: _isLiked,
@@ -640,9 +660,8 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
               isDark: isDark,
             ),
             const SizedBox(width: 36),
-            // 🔖 收藏按钮 — 带弹跳动画
-            _buildAnimatedActionButton(
-              animation: _saveScaleAnim,
+            // 🔖 收藏按钮 — 带真实的物理跳动效果
+            _BouncingActionButton(
               icon: _isSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
               label: _isSaved ? '已收藏' : '收藏',
               isActive: _isSaved,
@@ -652,8 +671,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
             ),
             const SizedBox(width: 36),
             // 🔗 分享按钮
-            _buildAnimatedActionButton(
-              animation: null,
+            _BouncingActionButton(
               icon: Icons.share_outlined,
               label: '分享',
               isActive: false,
@@ -667,76 +685,13 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     );
   }
 
-  /// 带动画的操作按钮
-  Widget _buildAnimatedActionButton({
-    required Animation<double>? animation,
-    required IconData icon,
-    required String label,
-    required bool isActive,
-    required Color activeColor,
-    required VoidCallback onTap,
-    required bool isDark,
-  }) {
-    final buttonContent = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // 圆形图标容器
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            // 激活时用对应颜色的浅背景，未激活时用默认
-            color: isActive
-                ? activeColor.withValues(alpha: 0.12)
-                : (isDark ? AppTheme.surfaceDark : AppTheme.primaryLight),
-            borderRadius: BorderRadius.circular(16),
-            // 激活时加微妙边框
-            border: isActive
-                ? Border.all(color: activeColor.withValues(alpha: 0.3), width: 1.5)
-                : null,
-          ),
-          child: Icon(
-            icon,
-            size: 22,
-            color: isActive ? activeColor : AppTheme.primaryColor,
-          ),
-        ),
-        const SizedBox(height: 8),
-        // 标签文字
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
-            color: isActive ? activeColor : AppTheme.lightText,
-          ),
-        ),
-      ],
-    );
-
-    // 如果有动画，包裹 AnimatedBuilder + Transform.scale
-    final animatedWidget = animation != null
-        ? AnimatedBuilder(
-            animation: animation,
-            builder: (context, child) => Transform.scale(
-              scale: animation.value,
-              child: child,
-            ),
-            child: buttonContent,
-          )
-        : buttonContent;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: animatedWidget,
-    );
-  }
-
   // ==================== HTML 样式定义 ====================
   Map<String, Style> _buildHtmlStyles(bool isDark) {
     return {
       'body': Style(
         margin: Margins.zero,
-        lineHeight: const LineHeight(1.8),
+        lineHeight: const LineHeight(2.0),
+        letterSpacing: 0.3,
         fontSize: FontSize(17 * _settingsService.fontScale.value),
         color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
       ),
@@ -747,7 +702,9 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
       ),
       'h2': Style(
-        margin: Margins.only(top: 28, bottom: 12),
+        margin: Margins.only(top: 32, bottom: 16),
+        padding: HtmlPaddings.only(left: 12),
+        border: const Border(left: BorderSide(color: AppTheme.primaryColor, width: 4)),
         fontSize: FontSize(22 * _settingsService.fontScale.value),
         fontWeight: FontWeight.w700,
         color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
@@ -802,6 +759,20 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         padding: HtmlPaddings.all(16),
         margin: Margins.only(top: 16, bottom: 16),
       ),
+      'table': Style(
+        margin: Margins.only(top: 16, bottom: 16),
+        backgroundColor: isDark ? AppTheme.surfaceDark : Colors.white,
+      ),
+      'th': Style(
+        padding: HtmlPaddings.all(12),
+        backgroundColor: isDark ? AppTheme.surfaceDark : const Color(0xFFF4F9F8),
+        fontWeight: FontWeight.w700,
+        border: Border(bottom: BorderSide(color: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor, width: 1)),
+      ),
+      'td': Style(
+        padding: HtmlPaddings.all(12),
+        border: Border(bottom: BorderSide(color: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor, width: 1)),
+      ),
     };
   }
 
@@ -812,6 +783,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     required IconData icon,
     required String semanticLabel,
     required VoidCallback onTap,
+    double iconScale = 1.0,
   }) {
     return Tooltip(
       message: semanticLabel,
@@ -820,15 +792,21 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         label: semanticLabel,
         child: Material(
           color: Colors.black.withValues(alpha: 0.35),
+          clipBehavior: Clip.antiAlias,
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
+            splashColor: Colors.white.withValues(alpha: 0.12),
+            highlightColor: Colors.white.withValues(alpha: 0.06),
             onTap: onTap,
             child: Container(
               width: 40,
               height: 40,
               alignment: Alignment.center,
-              child: Icon(icon, color: Colors.white, size: 20),
+              child: Transform.scale(
+                scale: iconScale,
+                child: Icon(icon, color: Colors.white, size: 20),
+              ),
             ),
           ),
         ),
@@ -848,7 +826,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         if (mounted) {
           _showFeedbackSnack(
             icon: Icons.check_circle_outline_rounded,
-            message: '链接已复制到剪贴板 📋',
+            message: '链接已复制到剪贴板',
             color: AppTheme.primaryColor,
           );
         }
@@ -887,4 +865,148 @@ int _readTime(String html) {
   // 中文阅读速度约 400 字/分，英文约 220 词/分
   final totalMinutes = (cjkCount / 400) + (engWords / 220);
   return totalMinutes.ceil().clamp(1, 99);
+}
+
+// ==================== 底部动作按钮的独立微动画组件 ====================
+// 将按钮分离为 StatefulWidget 以提供物理层面的向上跳跃(Translate)效果
+class _BouncingActionButton extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final Color activeColor;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const _BouncingActionButton({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.activeColor,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  State<_BouncingActionButton> createState() => _BouncingActionButtonState();
+}
+
+class _BouncingActionButtonState extends State<_BouncingActionButton> with SingleTickerProviderStateMixin {
+  late AnimationController _jumpController;
+  late Animation<double> _jumpAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    // 快速的跳起、回弹周期
+    _jumpController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+    );
+
+    _jumpAnim = TweenSequence<double>([
+      TweenSequenceItem(
+        // 向上急速跳起 14 逻辑像素
+        tween: Tween<double>(begin: 0.0, end: -14.0).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 35,
+      ),
+      TweenSequenceItem(
+        // Q弹平滑落下
+        tween: Tween<double>(begin: -14.0, end: 0.0).chain(CurveTween(curve: Curves.bounceOut)),
+        weight: 65,
+      ),
+    ]).animate(_jumpController);
+  }
+
+  @override
+  void dispose() {
+    _jumpController.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    widget.onTap();
+    // 强制每次点击都从头播放跳跃动画
+    _jumpController.forward(from: 0.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = widget.isActive;
+    final activeColor = widget.activeColor;
+    final isDark = widget.isDark;
+
+    final buttonContent = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isActive
+                ? activeColor.withValues(alpha: 0.15)
+                : (isDark ? AppTheme.surfaceDark : AppTheme.primaryLight),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isActive ? activeColor.withValues(alpha: 0.5) : Colors.transparent, 
+              width: 1.5,
+            ),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: activeColor.withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      spreadRadius: 4,
+                      offset: const Offset(0, 2),
+                    )
+                  ]
+                : [],
+          ),
+          child: AnimatedScale(
+            scale: isActive ? 1.05 : 1.0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.elasticOut,
+            child: Icon(
+              widget.icon,
+              size: 24,
+              color: isActive ? activeColor : AppTheme.primaryColor,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          widget.label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+            color: isActive ? activeColor : AppTheme.lightText,
+          ),
+        ),
+      ],
+    );
+
+    // 用 AnimatedBuilder 将跳动位移量应用在整个按钮上
+    return AnimatedBuilder(
+      animation: _jumpAnim,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, _jumpAnim.value),
+          child: child,
+        );
+      },
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          customBorder: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          onTap: _handleTap,
+          child: buttonContent,
+        ),
+      ),
+    );
+  }
 }

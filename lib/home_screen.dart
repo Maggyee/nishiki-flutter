@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -28,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<WpPost> _posts = const [];
   List<WpCategory> _categories = const [];
   final List<String> _recentSearches = [];
+  bool _categoriesLoading = false;
 
   // 收藏的文章列表
   List<WpPost> _savedPosts = const [];
@@ -43,6 +46,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late Animation<double> _avatarPulseAnim;      // 脉冲缩放动画
   int _tabIndex = 0;
   int? _selectedCategoryId;
+  Timer? _searchDebounce;
+  int _searchRequestId = 0;
 
   @override
   void initState() {
@@ -53,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _avatarPulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
-    )..repeat(reverse: true);
+    );
     _avatarPulseAnim = Tween<double>(begin: 1.0, end: 1.08).animate(
       CurvedAnimation(parent: _avatarPulseCtrl, curve: Curves.easeInOut),
     );
@@ -63,14 +68,36 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+
+    _syncProfilePulseForTab(_tabIndex);
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _avatarPulseCtrl.dispose();
     _profileEnterCtrl.dispose();
     super.dispose();
+  }
+
+  void _scheduleSearch({String? forcedTerm, Duration delay = const Duration(milliseconds: 280)}) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(delay, () {
+      _search(forcedTerm);
+    });
+  }
+
+  void _syncProfilePulseForTab(int tabIndex) {
+    if (tabIndex == 3) {
+      if (!_avatarPulseCtrl.isAnimating) {
+        _avatarPulseCtrl.repeat(reverse: true);
+      }
+      return;
+    }
+
+    _avatarPulseCtrl.stop();
+    _avatarPulseCtrl.value = 0.0;
   }
 
   Future<void> _loadInitial() async {
@@ -81,14 +108,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
 
     try {
-      final results = await Future.wait([
-        _api.fetchCategories(),
-        _api.fetchPosts(),
-      ]);
-
       setState(() {
-        _categories = results[0] as List<WpCategory>;
-        _posts = results[1] as List<WpPost>;
+        _posts = const [];
+      });
+
+      final posts = await _api.fetchPosts();
+      if (!mounted) return;
+      setState(() {
+        _posts = posts;
         _loading = false;
       });
     } catch (e) {
@@ -101,6 +128,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _loadCategoriesIfNeeded() async {
+    if (_categoriesLoading || _categories.isNotEmpty) return;
+    _categoriesLoading = true;
+    try {
+      final categories = await _api.fetchCategories();
+      if (!mounted) return;
+      setState(() {
+        _categories = categories;
+      });
+    } catch (_) {
+      // Keep search usable even if categories fail to load.
+    } finally {
+      _categoriesLoading = false;
     }
   }
 
@@ -123,6 +166,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _search([String? forcedTerm]) async {
     final term = (forcedTerm ?? _searchController.text).trim();
+    final requestId = ++_searchRequestId;
+
     if (term.isEmpty && _selectedCategoryId == null) {
       await _loadInitial();
       return;
@@ -140,6 +185,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         categoryId: _selectedCategoryId,
       );
 
+      if (!mounted || requestId != _searchRequestId) {
+        return;
+      }
+
       setState(() {
         _posts = posts;
         _loading = false;
@@ -153,6 +202,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
       }
     } catch (e) {
+      if (!mounted || requestId != _searchRequestId) {
+        return;
+      }
+
       setState(() {
         if (e is WpApiException) {
           _apiError = e;
@@ -211,21 +264,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ],
       ),
       body: body,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (value) {
-          setState(() => _tabIndex = value);
-          // 切换到收藏 tab 时自动刷新数据
-          if (value == 2) _loadSavedPosts();
-          // 切换到 Profile 时刷新界面
-          if (value == 3) setState(() {});
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.search_outlined), selectedIcon: Icon(Icons.search), label: 'Search'),
-          NavigationDestination(icon: Icon(Icons.bookmark_outline), selectedIcon: Icon(Icons.bookmark), label: 'Saved'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
-        ],
+      bottomNavigationBar: TooltipVisibility(
+        visible: false,
+        child: NavigationBar(
+          selectedIndex: _tabIndex,
+          onDestinationSelected: (value) {
+            if (_tabIndex == value) return;
+            setState(() => _tabIndex = value);
+            _syncProfilePulseForTab(value);
+            // 切换到收藏 tab 时自动刷新数据
+            if (value == 2) _loadSavedPosts();
+            // 切换到搜索 tab 时懒加载分类，提升首页首屏速度
+            if (value == 1) _loadCategoriesIfNeeded();
+            // 切换到 Profile 时播放一次入场动画
+            if (value == 3) {
+              _profileEnterCtrl.forward(from: 0.0);
+            }
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.search_outlined),
+              selectedIcon: Icon(Icons.search),
+              label: 'Search',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.bookmark_outline),
+              selectedIcon: Icon(Icons.bookmark),
+              label: 'Saved',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Profile',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -322,6 +400,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         ],
         onSubmitted: (_) => _search(),
+        onChanged: (_) => _scheduleSearch(),
       ),
     );
   }
@@ -351,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             onSelected: (_) {
               setState(() => _selectedCategoryId = null);
-              _search();
+              _scheduleSearch(delay: Duration.zero);
             },
           ),
           ..._categories.take(8).map((category) {
@@ -374,7 +453,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
               onSelected: (_) {
                 setState(() => _selectedCategoryId = selected ? null : category.id);
-                _search();
+                _scheduleSearch(delay: Duration.zero);
               },
             );
           }),
@@ -403,7 +482,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 label: Text(term),
                 onPressed: () {
                   _searchController.text = term;
-                  _search(term);
+                  _scheduleSearch(forcedTerm: term, delay: Duration.zero);
                 },
               );
             }).toList(),
@@ -470,26 +549,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: Text(sectionTitle, style: Theme.of(context).textTheme.titleMedium),
-        ),
-        ...displayPosts.map((post) {
-          return ArticleCard(
-            post: post,
-            onTap: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: post)),
-              );
-              // 从详情页返回后，如果在收藏 tab 则刷新
-              if (_tabIndex == 2) _loadSavedPosts();
-            },
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: displayPosts.length + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(sectionTitle, style: Theme.of(context).textTheme.titleMedium),
           );
-        }),
-      ],
+        }
+
+        final post = displayPosts[index - 1];
+        return ArticleCard(
+          post: post,
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: post)),
+            );
+            if (_tabIndex == 2) _loadSavedPosts();
+          },
+        );
+      },
     );
   }
 
@@ -667,51 +749,59 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // 有收藏内容
     return RefreshIndicator(
       onRefresh: _loadSavedPosts,
-      child: ListView(
+      child: ListView.builder(
         padding: const EdgeInsets.only(bottom: 24),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '我的收藏',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
+        itemCount: _savedPosts.length + 2,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '我的收藏',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '共 ${_savedPosts.length} 篇文章',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                        const SizedBox(height: 4),
+                        Text(
+                          '共 ${_savedPosts.length} 篇文章',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_savedPosts.isNotEmpty)
-                  TextButton.icon(
-                    onPressed: () => _showClearSavedDialog(),
-                    icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                    label: const Text('清空'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.redAccent,
-                      textStyle: const TextStyle(fontSize: 13),
+                      ],
                     ),
                   ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          ..._savedPosts.map((post) => _buildSavedCard(post, isDark)),
-        ],
+                  if (_savedPosts.isNotEmpty)
+                    TextButton.icon(
+                      onPressed: () => _showClearSavedDialog(),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: const Text('清空'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.redAccent,
+                        textStyle: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }
+
+          if (index == 1) {
+            return const SizedBox(height: 8);
+          }
+
+          final post = _savedPosts[index - 2];
+          return _buildSavedCard(post, isDark);
+        },
       ),
     );
   }
@@ -822,6 +912,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             width: 80,
                             height: 80,
                             fit: BoxFit.cover,
+                            memCacheWidth: 160,
+                            memCacheHeight: 160,
+                            maxWidthDiskCache: 320,
+                            fadeInDuration: const Duration(milliseconds: 120),
                             placeholder: (context, url) => Container(
                               width: 80,
                               height: 80,
@@ -955,9 +1049,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // ==================== Profile Tab（完整实现 + 交互动画） ====================
   Widget _buildProfileTab() {
-    // 每次显示 Profile 时重新播放入场动画
-    _profileEnterCtrl.forward(from: 0.0);
-
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final likedCount = _bookmarkService.likedCount;
     final savedCount = _bookmarkService.savedCount;
@@ -1720,6 +1811,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _goToTab(int tabIndex) {
     setState(() => _tabIndex = tabIndex);
+    _syncProfilePulseForTab(tabIndex);
   }
 }
 
