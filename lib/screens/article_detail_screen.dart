@@ -53,6 +53,9 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       widget.post.featuredImageUrl != null &&
       widget.post.featuredImageUrl!.isNotEmpty;
 
+  bool _dragStartedFromLeftEdge = false;
+  double _edgeDragDistance = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -233,61 +236,67 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     return Scaffold(
       // 只在有图时才让内容延伸到 AppBar 后面
       extendBodyBehindAppBar: _hasImage,
-      body: Stack(
-        children: [
-          // ==================== 主内容 ====================
-          CustomScrollView(
-            controller: _scrollController,
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              // 根据是否有特色图片，使用不同的 AppBar 样式
-              _hasImage ? _buildImageAppBar(theme) : _buildCleanAppBar(theme, isDark),
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: _handleHorizontalDragStart,
+        onHorizontalDragUpdate: _handleHorizontalDragUpdate,
+        onHorizontalDragEnd: _handleHorizontalDragEnd,
+        child: Stack(
+          children: [
+            // ==================== 主内容 ====================
+            CustomScrollView(
+              controller: _scrollController,
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                // 根据是否有特色图片，使用不同的 AppBar 样式
+                _hasImage ? _buildImageAppBar(theme) : _buildCleanAppBar(theme, isDark),
 
-              // 文章内容区域
-              SliverToBoxAdapter(
-                child: _buildArticleContent(theme, isDark),
-              ),
-            ],
-          ),
+                // 文章内容区域
+                SliverToBoxAdapter(
+                  child: _buildArticleContent(theme, isDark),
+                ),
+              ],
+            ),
 
-          // ==================== 阅读进度条 ====================
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              child: ValueListenableBuilder<double>(
-                valueListenable: _readProgress,
-                builder: (context, progress, _) {
-                  if (progress <= 0.001) return const SizedBox.shrink();
-                  return Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      height: 4,
-                      width: MediaQuery.of(context).size.width * progress,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF1abc9c), Color(0xFF4EE2C0)],
-                        ),
-                        borderRadius: const BorderRadius.only(
-                          topRight: Radius.circular(4),
-                          bottomRight: Radius.circular(4),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF1abc9c).withValues(alpha: 0.4),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
+            // ==================== 阅读进度条 ====================
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: ValueListenableBuilder<double>(
+                  valueListenable: _readProgress,
+                  builder: (context, progress, _) {
+                    if (progress <= 0.001) return const SizedBox.shrink();
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        height: 4,
+                        width: MediaQuery.of(context).size.width * progress,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF1abc9c), Color(0xFF4EE2C0)],
                           ),
-                        ],
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(4),
+                            bottomRight: Radius.circular(4),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF1abc9c).withValues(alpha: 0.4),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -306,7 +315,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         child: _buildCircleButton(
           icon: Icons.arrow_back_rounded,
           semanticLabel: 'Back',
-          onTap: () => Navigator.of(context).pop(),
+          onTap: _handleBack,
         ),
       ),
       // 右侧操作按钮
@@ -405,7 +414,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
           Icons.arrow_back_rounded,
           color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
         ),
-        onPressed: () => Navigator.of(context).pop(),
+        onPressed: _handleBack,
       ),
       // 右侧操作按钮
       actions: [
@@ -516,7 +525,31 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
                 style: _buildHtmlStyles(isDark),
                 extensions: [
                   const TableHtmlExtension(),
+                  TagWrapExtension(
+                    tagsToWrap: {'table'},
+                    builder: (child) {
+                      return LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minWidth: constraints.maxWidth,
+                              ),
+                              child: child,
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ],
+                onLinkTap: (url, _, _) {
+                  if (url == null || url.isEmpty) return;
+                  HapticFeedback.selectionClick();
+                  _openInBrowser(url);
+                },
               ),
             ),
 
@@ -532,7 +565,10 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
               const SizedBox(height: 8),
               Center(
                 child: TextButton.icon(
-                  onPressed: () => _openInBrowser(widget.post.link),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    _openInBrowser(widget.post.link);
+                  },
                   icon: const Icon(Icons.open_in_new_rounded, size: 16),
                   label: const Text('在浏览器中查看原文'),
                   style: TextButton.styleFrom(
@@ -622,7 +658,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
               ),
               const SizedBox(height: 2),
               Text(
-                '${_formatFullDate(widget.post.date)} · ${_readTime(widget.post.contentHtml)} min read',
+                '${_formatFullDate(widget.post.date)} · ${widget.post.readMinutes} min read',
                 style: TextStyle(
                   fontSize: 12,
                   color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
@@ -833,6 +869,36 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       }
     }
   }
+
+  void _handleBack() {
+    HapticFeedback.selectionClick();
+    Navigator.of(context).maybePop();
+  }
+
+  void _handleHorizontalDragStart(DragStartDetails details) {
+    _dragStartedFromLeftEdge = details.globalPosition.dx <= 24;
+    _edgeDragDistance = 0.0;
+  }
+
+  void _handleHorizontalDragUpdate(DragUpdateDetails details) {
+    if (!_dragStartedFromLeftEdge) return;
+    _edgeDragDistance += details.primaryDelta ?? 0.0;
+  }
+
+  void _handleHorizontalDragEnd(DragEndDetails details) {
+    if (!_dragStartedFromLeftEdge) return;
+
+    final velocity = details.primaryVelocity ?? 0.0;
+    final shouldPop = _edgeDragDistance > 88 || velocity > 900;
+
+    if (shouldPop && mounted && Navigator.of(context).canPop()) {
+      HapticFeedback.mediumImpact();
+      Navigator.of(context).maybePop();
+    }
+
+    _dragStartedFromLeftEdge = false;
+    _edgeDragDistance = 0.0;
+  }
 }
 
 // ==================== 工具函数 ====================
@@ -844,27 +910,6 @@ String _formatFullDate(DateTime date) {
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
   return '${months[date.month - 1]} ${date.day}, ${date.year}';
-}
-
-/// 估算阅读时长（按中英文混合计算）
-int _readTime(String html) {
-  // 移除 HTML 标签
-  final text = html
-      .replaceAll(RegExp(r'<[^>]*>'), ' ')
-      .trim();
-  // 计算中文字符数（每个算一个"词"）
-  final cjkCount = RegExp(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]')
-      .allMatches(text)
-      .length;
-  // 计算英文单词数
-  final engWords = text
-      .replaceAll(RegExp(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]'), ' ')
-      .split(RegExp(r'\s+'))
-      .where((w) => w.isNotEmpty)
-      .length;
-  // 中文阅读速度约 400 字/分，英文约 220 词/分
-  final totalMinutes = (cjkCount / 400) + (engWords / 220);
-  return totalMinutes.ceil().clamp(1, 99);
 }
 
 // ==================== 底部动作按钮的独立微动画组件 ====================

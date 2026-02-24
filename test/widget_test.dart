@@ -157,4 +157,83 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('Edge swipe from left pops detail page',
+      (WidgetTester tester) async {
+    final post = _samplePost();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ArticleDetailScreen(post: post),
+                      ),
+                    );
+                  },
+                  child: const Text('Open detail'),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open detail'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ArticleDetailScreen), findsOneWidget);
+
+    final gesture = await tester.startGesture(const Offset(6, 220));
+    await gesture.moveBy(const Offset(140, 0));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ArticleDetailScreen), findsNothing);
+    expect(find.text('Open detail'), findsOneWidget);
+  });
+
+  testWidgets('Swipe not started from left edge does not pop detail page',
+      (WidgetTester tester) async {
+    final post = _samplePost();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ArticleDetailScreen(post: post),
+                      ),
+                    );
+                  },
+                  child: const Text('Open detail'),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open detail'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ArticleDetailScreen), findsOneWidget);
+
+    final gesture = await tester.startGesture(const Offset(120, 220));
+    await gesture.moveBy(const Offset(170, 0));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ArticleDetailScreen), findsOneWidget);
+  });
 }
