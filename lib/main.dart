@@ -55,7 +55,7 @@ class _NishikiAppState extends State<NishikiApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Nishiki Blog',
+      title: 'Nishiki 博客',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

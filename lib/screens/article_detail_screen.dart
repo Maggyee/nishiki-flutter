@@ -314,7 +314,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         padding: const EdgeInsets.all(8),
         child: _buildCircleButton(
           icon: Icons.arrow_back_rounded,
-          semanticLabel: 'Back',
+          semanticLabel: '返回',
           onTap: _handleBack,
         ),
       ),
@@ -326,7 +326,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
             animation: _saveScaleAnim,
             builder: (context, _) => _buildCircleButton(
               icon: _isSaved ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
-              semanticLabel: _isSaved ? 'Remove bookmark' : 'Bookmark article',
+              semanticLabel: _isSaved ? '取消收藏' : '收藏文章',
               onTap: _handleSave,
               iconScale: _saveScaleAnim.value,
             ),
@@ -336,7 +336,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
           padding: const EdgeInsets.only(right: 8, top: 8, bottom: 8),
           child: _buildCircleButton(
             icon: Icons.share_rounded,
-            semanticLabel: 'Share article',
+            semanticLabel: '分享文章',
             onTap: _handleShare,
           ),
         ),
@@ -409,7 +409,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       elevation: 0,
       // 返回按钮
       leading: IconButton(
-        tooltip: 'Back',
+        tooltip: '返回',
         icon: Icon(
           Icons.arrow_back_rounded,
           color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
@@ -420,7 +420,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
       actions: [
         // 收藏按钮
         IconButton(
-          tooltip: _isSaved ? 'Remove bookmark' : 'Bookmark article',
+          tooltip: _isSaved ? '取消收藏' : '收藏文章',
           icon: AnimatedBuilder(
             animation: _saveScaleAnim,
             builder: (context, child) => Transform.scale(
@@ -435,7 +435,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
         ),
         // 分享按钮
         IconButton(
-          tooltip: 'Share article',
+          tooltip: '分享文章',
           icon: Icon(
             Icons.share_rounded,
             color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
@@ -658,7 +658,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
               ),
               const SizedBox(height: 2),
               Text(
-                '${_formatFullDate(widget.post.date)} · ${widget.post.readMinutes} min read',
+                '${_formatFullDate(widget.post.date)} · ${widget.post.readMinutes} 分钟阅读',
                 style: TextStyle(
                   fontSize: 12,
                   color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
@@ -905,11 +905,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen>
 
 /// 格式化日期为完整格式（如 "Feb 16, 2026"）
 String _formatFullDate(DateTime date) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  return '${date.year}年${date.month}月${date.day}日';
 }
 
 // ==================== 底部动作按钮的独立微动画组件 ====================

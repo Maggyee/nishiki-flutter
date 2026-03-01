@@ -234,7 +234,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         title: SizedBox(
           height: 28,
           child: Semantics(
-            label: 'Nishiki Blog logo',
+            label: 'Nishiki 博客徽标',
             image: true,
             child: Image.asset(
               'assets/images/site_wordmark.png',
@@ -243,7 +243,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               errorBuilder: (context, error, stackTrace) {
                 return const Align(
                   alignment: Alignment.centerLeft,
-                  child: Text('Nishiki Blog'),
+                  child: Text('Nishiki 博客'),
                 );
               },
             ),
@@ -251,7 +251,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: '刷新',
             onPressed: () {
               if (_tabIndex == 2) {
                 _loadSavedPosts();
@@ -285,22 +285,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             NavigationDestination(
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home),
-              label: 'Home',
+              label: '首页',
             ),
             NavigationDestination(
               icon: Icon(Icons.search_outlined),
               selectedIcon: Icon(Icons.search),
-              label: 'Search',
+              label: '搜索',
             ),
             NavigationDestination(
               icon: Icon(Icons.bookmark_outline),
               selectedIcon: Icon(Icons.bookmark),
-              label: 'Saved',
+              label: '收藏',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline),
               selectedIcon: Icon(Icons.person),
-              label: 'Profile',
+              label: '我的',
             ),
           ],
         ),
@@ -318,7 +318,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
             child: Text(
-              'Today Picks',
+              '今日精选',
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
@@ -330,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
           _buildHomeHero(),
-          _buildFeed(sectionTitle: 'Trending Now', skipFirst: true),
+          _buildFeed(sectionTitle: '热门推荐', skipFirst: true),
         ],
       ),
     );
@@ -351,7 +351,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
           child: Text(
-            'Featured Story',
+            '精选推荐',
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -379,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _buildSearchArea(),
           _buildCategoryArea(),
           _buildRecentSearches(),
-          _buildFeed(sectionTitle: 'Search Results'),
+          _buildFeed(sectionTitle: '搜索结果'),
         ],
       ),
     );
@@ -390,11 +390,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: SearchBar(
         controller: _searchController,
-        hintText: 'Search articles, topics, or authors',
+        hintText: '搜索文章、话题或作者',
         leading: const Icon(Icons.search),
         trailing: [
           IconButton(
-            tooltip: 'Run search',
+            tooltip: '开始搜索',
             onPressed: _search,
             icon: const Icon(Icons.arrow_forward),
           ),
@@ -413,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         runSpacing: 8,
         children: [
           ChoiceChip(
-            label: const Text('All'),
+            label: const Text('全部'),
             selected: _selectedCategoryId == null,
             showCheckmark: true,
             checkmarkColor: AppTheme.primaryDark,
@@ -472,7 +472,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Recent Searches', style: Theme.of(context).textTheme.titleSmall),
+          Text('最近搜索', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -507,7 +507,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Unable to load content', style: TextStyle(fontWeight: FontWeight.w700)),
+                const Text('无法加载内容', style: TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 Text(_error!),
                 const SizedBox(height: 8),
@@ -520,13 +520,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     if (_apiError?.canRetry ?? true)
                       FilledButton(
                         onPressed: _loadInitial,
-                        child: const Text('Try again'),
+                        child: const Text('重试'),
                       ),
                     if (_apiError?.showConfigEntry ?? false)
                       OutlinedButton.icon(
                         onPressed: _showConfigHelpDialog,
                         icon: const Icon(Icons.settings_outlined),
-                        label: const Text('Site config help'),
+                        label: const Text('站点配置帮助'),
                       ),
                   ],
                 ),
@@ -544,7 +544,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return const Padding(
         padding: EdgeInsets.all(24),
         child: Center(
-          child: Text('No matching posts. Try another keyword or category.'),
+          child: Text('没有找到匹配的文章，请尝试其他关键词或分类。'),
         ),
       );
     }
@@ -671,7 +671,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close'),
+            child: const Text('关闭'),
           ),
         ],
       ),
@@ -1346,7 +1346,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             padding: const EdgeInsets.only(top: 24),
             child: Center(
               child: Text(
-                'Made with 💙 by Nishiki',
+                'Nishiki 用 💙 制作',
                 style: TextStyle(
                   fontSize: 12,
                   color: isDark ? AppTheme.darkModeSecondary.withValues(alpha: 0.6) : AppTheme.lightText.withValues(alpha: 0.5),
@@ -1836,11 +1836,7 @@ class _SettingsTile {
 
 /// 格式化日期为 "Feb 16" 格式
 String _formatDate(DateTime date) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${months[date.month - 1]} ${date.day}';
+  return '${date.month}月${date.day}日';
 }
 
 /// ================================================================

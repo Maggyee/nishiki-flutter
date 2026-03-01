@@ -170,7 +170,7 @@ class HeroArticleCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            '${post.readMinutes} min read',
+                            '${post.readMinutes} 分钟阅读',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: Colors.white70,
                             ),
@@ -260,7 +260,7 @@ class ArticleCard extends StatelessWidget {
                       // 摘要
                       Text(
                         post.excerpt.isEmpty
-                            ? 'No excerpt available.'
+                            ? '暂无摘要'
                             : post.excerpt,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -286,7 +286,7 @@ class ArticleCard extends StatelessWidget {
                           ),
                           _buildDot(),
                           Text(
-                            '${post.readMinutes} min',
+                            '${post.readMinutes} 分钟',
                             style: theme.textTheme.labelMedium,
                           ),
                         ],
@@ -364,9 +364,5 @@ class ArticleCard extends StatelessWidget {
 
 /// 格式化日期为友好的短格式（如 "Feb 16"）
 String _formatDate(DateTime date) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${months[date.month - 1]} ${date.day}';
+  return '${date.month}月${date.day}日';
 }
