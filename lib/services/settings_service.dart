@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,7 +20,8 @@ class SettingsService {
   static const String _readCountKey = 'read_article_count';
   static const String _readPostIdsKey = 'read_post_ids';
   static const String _readPostsDataKey = 'read_posts_data';
-  static const String _sqliteMigrationKey = 'reading_history_sqlite_migrated_v1';
+  static const String _sqliteMigrationKey =
+      'reading_history_sqlite_migrated_v1';
 
   final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.system);
   final ValueNotifier<double> fontScale = ValueNotifier(1.0);
@@ -286,10 +287,7 @@ class SettingsService {
     await prefs.setBool(_sqliteMigrationKey, true);
   }
 
-  Future<void> _upsertReadPostSummary(
-    DatabaseExecutor db,
-    WpPost post,
-  ) async {
+  Future<void> _upsertReadPostSummary(DatabaseExecutor db, WpPost post) async {
     await db.insert(
       LocalDatabaseService.postsTable,
       {
@@ -375,7 +373,10 @@ class SettingsService {
   }
 
   String _normalizeSource(String? sourceBaseUrl) =>
-      (sourceBaseUrl ?? _currentSourceBaseUrl).trim();
+      ((sourceBaseUrl == null || sourceBaseUrl.trim().isEmpty)
+              ? _currentSourceBaseUrl
+              : sourceBaseUrl)
+          .trim();
 
   String _postKey(int postId, [String? sourceBaseUrl]) =>
       '${_normalizeSource(sourceBaseUrl)}::$postId';
@@ -389,16 +390,16 @@ class SettingsService {
   }
 
   String get themeModeName => switch (themeMode.value) {
-        ThemeMode.system => '跟随系统',
-        ThemeMode.light => '浅色模式',
-        ThemeMode.dark => '深色模式',
-      };
+    ThemeMode.system => '跟随系统',
+    ThemeMode.light => '浅色模式',
+    ThemeMode.dark => '深色模式',
+  };
 
   IconData get themeModeIcon => switch (themeMode.value) {
-        ThemeMode.system => Icons.brightness_auto_rounded,
-        ThemeMode.light => Icons.light_mode_rounded,
-        ThemeMode.dark => Icons.dark_mode_rounded,
-      };
+    ThemeMode.system => Icons.brightness_auto_rounded,
+    ThemeMode.light => Icons.light_mode_rounded,
+    ThemeMode.dark => Icons.dark_mode_rounded,
+  };
 
   String get fontScaleName {
     if (fontScale.value <= 0.85) {
@@ -413,4 +414,3 @@ class SettingsService {
     return '放大';
   }
 }
-

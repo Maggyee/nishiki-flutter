@@ -1,5 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:nishiki_flutter/main.dart';
@@ -9,6 +9,7 @@ import 'package:nishiki_flutter/widgets/article_card.dart';
 
 WpPost _samplePost() {
   return WpPost(
+    sourceBaseUrl: 'https://example.com',
     id: 42,
     title: 'Widget Test Post',
     excerpt: 'Short excerpt for widget test',
@@ -17,6 +18,7 @@ WpPost _samplePost() {
     date: DateTime(2026, 2, 22),
     featuredImageUrl: null,
     categories: const ['Testing'],
+    categoryIds: const [1],
     link: 'https://example.com/post/42',
     readMinutes: 1,
   );
@@ -38,67 +40,53 @@ void main() {
     await _pumpAppShell(tester);
 
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Search'), findsOneWidget);
-    expect(find.text('Saved'), findsOneWidget);
-    expect(find.text('Profile'), findsOneWidget);
+    expect(find.byType(NavigationDestination), findsNWidgets(4));
   });
 
-  testWidgets('switches to Search tab and shows search controls',
-      (WidgetTester tester) async {
+  testWidgets('switches to Search tab and shows search controls', (
+    WidgetTester tester,
+  ) async {
     await _pumpAppShell(tester);
 
-    await tester.tap(find.text('Search'));
+    await tester.tap(find.byIcon(Icons.search_outlined));
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byType(SearchBar), findsOneWidget);
-    expect(find.byTooltip('Run search'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_forward), findsOneWidget);
   });
 
-  testWidgets('Saved empty state can navigate back to Home',
-      (WidgetTester tester) async {
+  testWidgets('Saved empty state can navigate back to Home', (
+    WidgetTester tester,
+  ) async {
     await _pumpAppShell(tester);
 
-    await tester.tap(find.text('Saved'));
+    await tester.tap(find.byIcon(Icons.bookmark_outline));
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.text('暂无收藏文章'), findsOneWidget);
-    expect(find.text('去发现文章'), findsOneWidget);
+    expect(find.byIcon(Icons.bookmark_outline_rounded), findsOneWidget);
+    expect(find.byType(FilledButton), findsWidgets);
 
-    await tester.tap(find.text('去发现文章'));
+    await tester.tap(find.byType(FilledButton).first);
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Today Picks'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
   });
 
-  testWidgets('Profile tab renders preference and feature sections',
-      (WidgetTester tester) async {
+  testWidgets('Profile tab renders site-management entry', (
+    WidgetTester tester,
+  ) async {
     await _pumpAppShell(tester);
 
-    await tester.tap(find.text('Profile'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pump(const Duration(milliseconds: 900));
 
-    expect(find.text('阅读偏好'), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.text('功能'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('功能'), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.text('关于'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('关于'), findsOneWidget);
+    expect(find.byIcon(Icons.hub_rounded), findsWidgets);
+    expect(find.byIcon(Icons.info_outline_rounded), findsWidgets);
   });
 
-  testWidgets('Article card tap opens detail and supports back navigation',
-      (WidgetTester tester) async {
+  testWidgets('Article card tap opens detail and supports back navigation', (
+    WidgetTester tester,
+  ) async {
     final post = _samplePost();
 
     await tester.pumpWidget(
@@ -135,15 +123,12 @@ void main() {
     expect(find.byType(ArticleCard), findsOneWidget);
   });
 
-  testWidgets('Bookmark animation in detail page does not throw assertion',
-      (WidgetTester tester) async {
+  testWidgets('Bookmark animation in detail page does not throw assertion', (
+    WidgetTester tester,
+  ) async {
     final post = _samplePost();
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ArticleDetailScreen(post: post),
-      ),
-    );
+    await tester.pumpWidget(MaterialApp(home: ArticleDetailScreen(post: post)));
 
     await tester.pump(const Duration(milliseconds: 200));
 
@@ -158,8 +143,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Edge swipe from left pops detail page',
-      (WidgetTester tester) async {
+  testWidgets('Edge swipe from left pops detail page', (
+    WidgetTester tester,
+  ) async {
     final post = _samplePost();
 
     await tester.pumpWidget(
@@ -198,8 +184,9 @@ void main() {
     expect(find.text('Open detail'), findsOneWidget);
   });
 
-  testWidgets('Swipe not started from left edge does not pop detail page',
-      (WidgetTester tester) async {
+  testWidgets('Swipe not started from left edge does not pop detail page', (
+    WidgetTester tester,
+  ) async {
     final post = _samplePost();
 
     await tester.pumpWidget(

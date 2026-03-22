@@ -1,4 +1,4 @@
-﻿import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/wp_models.dart';
@@ -104,6 +104,12 @@ class HeroArticleCard extends StatelessWidget {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
+                          _MetaPill(
+                            label: _sourceLabel(post.sourceBaseUrl),
+                            foreground: Colors.white,
+                            background: Colors.black.withValues(alpha: 0.24),
+                            icon: Icons.language_rounded,
+                          ),
                           _MetaPill(
                             label: post.author,
                             foreground: Colors.white,
@@ -211,6 +217,10 @@ class ArticleCard extends StatelessWidget {
                           runSpacing: 8,
                           children: [
                             _CompactMeta(
+                              icon: Icons.language_rounded,
+                              label: _sourceLabel(post.sourceBaseUrl),
+                            ),
+                            _CompactMeta(
                               icon: Icons.person_outline_rounded,
                               label: post.author,
                             ),
@@ -292,6 +302,14 @@ class _ArticlePreview extends StatelessWidget {
       ),
     );
   }
+}
+
+String _sourceLabel(String sourceBaseUrl) {
+  final host = Uri.tryParse(sourceBaseUrl)?.host;
+  if (host != null && host.isNotEmpty) {
+    return host.replaceFirst('www.', '');
+  }
+  return sourceBaseUrl.replaceFirst('https://', '').replaceFirst('http://', '');
 }
 
 class _MetaPill extends StatelessWidget {

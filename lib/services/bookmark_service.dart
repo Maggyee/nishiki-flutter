@@ -220,8 +220,9 @@ class BookmarkService {
     return _savedKeys.contains(key);
   }
 
-  Set<int> get savedPostIds =>
-      Set.unmodifiable(_savedKeys.map(_parsePostIdFromKey).whereType<int>().toSet());
+  Set<int> get savedPostIds => Set.unmodifiable(
+    _savedKeys.map(_parsePostIdFromKey).whereType<int>().toSet(),
+  );
 
   Future<List<Map<String, dynamic>>> getSavedPostsData() async {
     await init();
@@ -519,8 +520,7 @@ class BookmarkService {
       list.removeWhere(
         (item) =>
             item['id'] == postId &&
-            _normalizeSource(item['sourceBaseUrl'] as String?) ==
-                sourceBaseUrl,
+            _normalizeSource(item['sourceBaseUrl'] as String?) == sourceBaseUrl,
       );
       await prefs.setString(_savedPostsKey, json.encode(list));
     } catch (_) {}
@@ -541,8 +541,7 @@ class BookmarkService {
       list.removeWhere(
         (item) =>
             item['id'] == postId &&
-            _normalizeSource(item['sourceBaseUrl'] as String?) ==
-                sourceBaseUrl,
+            _normalizeSource(item['sourceBaseUrl'] as String?) == sourceBaseUrl,
       );
       await prefs.setString(_likedPostsKey, json.encode(list));
     } catch (_) {}
@@ -557,9 +556,10 @@ class BookmarkService {
     final categories = ((postData['categories'] as List<dynamic>?) ?? const [])
         .map((item) => item.toString())
         .toList();
-    final categoryIds = ((postData['categoryIds'] as List<dynamic>?) ?? const [])
-        .whereType<int>()
-        .toList();
+    final categoryIds =
+        ((postData['categoryIds'] as List<dynamic>?) ?? const [])
+            .whereType<int>()
+            .toList();
 
     await db.insert(
       LocalDatabaseService.postsTable,
@@ -619,12 +619,16 @@ class BookmarkService {
       'categoryIds': categoryIds,
       'link': (row['link'] as String?) ?? '',
       'readMinutes': (row['readMinutes'] as int?) ?? 1,
-      'sourceBaseUrl': (row['sourceBaseUrl'] as String?) ?? _currentSourceBaseUrl,
+      'sourceBaseUrl':
+          (row['sourceBaseUrl'] as String?) ?? _currentSourceBaseUrl,
     };
   }
 
   String _normalizeSource(String? sourceBaseUrl) =>
-      (sourceBaseUrl ?? _currentSourceBaseUrl).trim();
+      ((sourceBaseUrl == null || sourceBaseUrl.trim().isEmpty)
+              ? _currentSourceBaseUrl
+              : sourceBaseUrl)
+          .trim();
 
   String _postKey(int postId, [String? sourceBaseUrl]) =>
       '${_normalizeSource(sourceBaseUrl)}::$postId';

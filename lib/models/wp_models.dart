@@ -14,7 +14,12 @@ String? _extractFeaturedImageUrl(Map<String, dynamic>? media) {
   if (details is Map<String, dynamic>) {
     final sizes = details['sizes'];
     if (sizes is Map<String, dynamic>) {
-      for (final key in const ['medium_large', 'large', 'medium', 'thumbnail']) {
+      for (final key in const [
+        'medium_large',
+        'large',
+        'medium',
+        'thumbnail',
+      ]) {
         final sizeInfo = sizes[key];
         if (sizeInfo is Map<String, dynamic>) {
           final source = sizeInfo['source_url'] as String?;
@@ -31,6 +36,21 @@ String? _extractFeaturedImageUrl(Map<String, dynamic>? media) {
     return fallback;
   }
   return null;
+}
+
+String _normalizeSourceBaseUrlFromSummary(Map<String, dynamic> map) {
+  final explicit = (map['sourceBaseUrl'] as String?)?.trim();
+  if (explicit != null && explicit.isNotEmpty) {
+    return explicit;
+  }
+
+  final link = (map['link'] as String?)?.trim();
+  final uri = link == null || link.isEmpty ? null : Uri.tryParse(link);
+  if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+    return '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
+  }
+
+  return '';
 }
 
 class WpCategory {
@@ -77,10 +97,9 @@ class WpPost {
   final int readMinutes;
 
   static int estimateReadMinutesFromHtml(String html) {
-    final words = htmlToText(html)
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .length;
+    final words = htmlToText(
+      html,
+    ).split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
     return (words / 220).ceil().clamp(1, 99);
   }
 
@@ -104,7 +123,7 @@ class WpPost {
   /// 从本地存储的简要 Map 恢复
   factory WpPost.fromSummaryMap(Map<String, dynamic> map) {
     return WpPost(
-      sourceBaseUrl: (map['sourceBaseUrl'] as String?) ?? '',
+      sourceBaseUrl: _normalizeSourceBaseUrlFromSummary(map),
       id: map['id'] as int,
       title: (map['title'] as String?) ?? 'Untitled',
       excerpt: (map['excerpt'] as String?) ?? '',
@@ -136,7 +155,8 @@ class WpPost {
       for (final termList in termLists) {
         if (termList is List) {
           for (final term in termList) {
-            if (term is Map<String, dynamic> && term['taxonomy'] == 'category') {
+            if (term is Map<String, dynamic> &&
+                term['taxonomy'] == 'category') {
               final name = term['name'] as String?;
               final id = term['id'] as int?;
               if (name != null && name.isNotEmpty) {
@@ -151,11 +171,18 @@ class WpPost {
       }
     }
 
-    final title = htmlToText((json['title'] as Map<String, dynamic>?)?['rendered'] as String?);
-    final excerpt = htmlToText((json['excerpt'] as Map<String, dynamic>?)?['rendered'] as String?);
-    final contentHtml = ((json['content'] as Map<String, dynamic>?)?['rendered'] as String?) ?? '';
+    final title = htmlToText(
+      (json['title'] as Map<String, dynamic>?)?['rendered'] as String?,
+    );
+    final excerpt = htmlToText(
+      (json['excerpt'] as Map<String, dynamic>?)?['rendered'] as String?,
+    );
+    final contentHtml =
+        ((json['content'] as Map<String, dynamic>?)?['rendered'] as String?) ??
+        '';
     final author = (authorList != null && authorList.isNotEmpty)
-        ? ((authorList.first as Map<String, dynamic>)['name'] as String? ?? 'Unknown author')
+        ? ((authorList.first as Map<String, dynamic>)['name'] as String? ??
+              'Unknown author')
         : 'Unknown author';
     final featuredImageUrl = (mediaList != null && mediaList.isNotEmpty)
         ? _extractFeaturedImageUrl(mediaList.first as Map<String, dynamic>)
@@ -171,7 +198,8 @@ class WpPost {
       excerpt: excerpt,
       contentHtml: contentHtml,
       author: author,
-      date: DateTime.tryParse((json['date'] as String?) ?? '') ?? DateTime.now(),
+      date:
+          DateTime.tryParse((json['date'] as String?) ?? '') ?? DateTime.now(),
       featuredImageUrl: featuredImageUrl,
       categories: categoryNames,
       categoryIds: categoryIds,

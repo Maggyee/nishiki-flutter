@@ -6,11 +6,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'models/wp_models.dart';
+import 'services/blog_source_service.dart';
 import 'services/wp_api_service.dart';
 import 'services/bookmark_service.dart';
 import 'services/settings_service.dart';
 import 'widgets/article_card.dart';
 import 'screens/article_detail_screen.dart';
+import 'screens/stats_posts_screen.dart';
 import 'theme/app_theme.dart';
 import 'config.dart';
 
@@ -26,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _searchController = TextEditingController();
   final _bookmarkService = BookmarkService();
   final _settings = SettingsService();
+  final _blogSource = BlogSourceService();
 
   List<WpPost> _posts = const [];
   List<WpCategory> _categories = const [];
@@ -52,6 +55,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _blogSource.baseUrl.addListener(_handleSourceStateChanged);
+    _blogSource.mode.addListener(_handleSourceStateChanged);
+    _blogSource.sourceEntries.addListener(_handleSourceStateChanged);
+    _blogSource.groups.addListener(_handleSourceStateChanged);
+    _blogSource.selectedGroupId.addListener(_handleSourceStateChanged);
     _loadInitial();
 
     // 头像呼吸脉冲动画（无限循环）
@@ -75,10 +83,34 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _blogSource.baseUrl.removeListener(_handleSourceStateChanged);
+    _blogSource.mode.removeListener(_handleSourceStateChanged);
+    _blogSource.sourceEntries.removeListener(_handleSourceStateChanged);
+    _blogSource.groups.removeListener(_handleSourceStateChanged);
+    _blogSource.selectedGroupId.removeListener(_handleSourceStateChanged);
     _searchController.dispose();
     _avatarPulseCtrl.dispose();
     _profileEnterCtrl.dispose();
     super.dispose();
+  }
+
+  bool get _isAggregateMode =>
+      _blogSource.mode.value == BlogSourceMode.aggregate;
+
+  void _handleSourceStateChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedCategoryId = null;
+      _categories = const [];
+    });
+
+    if (_tabIndex == 1 && !_isAggregateMode) {
+      _loadCategoriesIfNeeded();
+    }
+    _loadInitial();
   }
 
   void _scheduleSearch({
@@ -135,6 +167,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadCategoriesIfNeeded() async {
+    if (_isAggregateMode) {
+      if (mounted && _categories.isNotEmpty) {
+        setState(() {
+          _categories = const [];
+        });
+      }
+      return;
+    }
     if (_categoriesLoading || _categories.isNotEmpty) return;
     _categoriesLoading = true;
     try {
@@ -166,6 +206,69 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     } catch (_) {
       if (mounted) setState(() => _savedLoading = false);
+    }
+  }
+
+  Future<List<WpPost>> _getSavedPostsForView() async {
+    await _bookmarkService.init();
+    final savedData = await _bookmarkService.getSavedPostsData();
+    return savedData.map((data) => WpPost.fromSummaryMap(data)).toList();
+  }
+
+  Future<List<WpPost>> _getLikedPostsForView() async {
+    await _bookmarkService.init();
+    final likedData = await _bookmarkService.getLikedPostsData();
+    return likedData.map((data) => WpPost.fromSummaryMap(data)).toList();
+  }
+
+  Future<List<WpPost>> _getReadPostsForView() async {
+    await _settings.init();
+    return _settings.getReadPosts();
+  }
+
+  Future<void> _openPostDetail(WpPost post) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: post)));
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+    if (_tabIndex == 2) {
+      await _loadSavedPosts();
+    }
+  }
+
+  Future<void> _openStatPostsScreen({
+    required String title,
+    required String emptyTitle,
+    required String emptySubtitle,
+    required IconData emptyIcon,
+    required Future<List<WpPost>> Function() loadPosts,
+  }) async {
+    HapticFeedback.selectionClick();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StatsPostsScreen(
+          title: title,
+          emptyTitle: emptyTitle,
+          emptySubtitle: emptySubtitle,
+          emptyIcon: emptyIcon,
+          loadPosts: loadPosts,
+          onOpenPost: _openPostDetail,
+        ),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+    if (_tabIndex == 2) {
+      await _loadSavedPosts();
     }
   }
 
@@ -256,6 +359,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         actions: [
           IconButton(
+            tooltip: '站点与组合',
+            onPressed: _showSourceManagerSheet,
+            icon: const Icon(Icons.hub_outlined),
+          ),
+          IconButton(
             tooltip: '刷新',
             onPressed: () {
               if (_tabIndex == 2) {
@@ -315,6 +423,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // ==================== 首页 Tab ====================
   Widget _buildHomeTab() {
+    final scopeLabel = _blogSource.currentScopeLabel;
     return RefreshIndicator(
       onRefresh: _loadInitial,
       child: ListView(
@@ -329,6 +438,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             child: Text(
               '来自你 WordPress 站点的最新文章',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(
+                  avatar: Icon(
+                    _isAggregateMode
+                        ? Icons.hub_rounded
+                        : Icons.language_rounded,
+                    size: 18,
+                  ),
+                  label: Text(scopeLabel),
+                  onDeleted: _showSourceManagerSheet,
+                  deleteIcon: const Icon(Icons.tune_rounded, size: 18),
+                ),
+              ],
             ),
           ),
           _buildHomeHero(),
@@ -410,6 +539,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildCategoryArea() {
+    if (_isAggregateMode) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline_rounded, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '聚合模式下暂不按分类筛选，避免不同站点分类 ID 冲突。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Wrap(
@@ -868,7 +1021,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
       ),
       confirmDismiss: (direction) async {
-        await _bookmarkService.toggleSave(post.id);
+        await _bookmarkService.toggleSave(
+          post.id,
+          sourceBaseUrl: post.sourceBaseUrl,
+        );
         return true;
       },
       onDismissed: (_) {
@@ -887,6 +1043,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               onPressed: () async {
                 await _bookmarkService.toggleSave(
                   post.id,
+                  sourceBaseUrl: post.sourceBaseUrl,
                   postData: post.toSummaryMap(),
                 );
                 _loadSavedPosts();
@@ -916,7 +1073,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                 );
                 try {
-                  final freshPost = await _api.fetchPostById(post.id);
+                  final freshPost = await _api.fetchPostById(
+                    post.id,
+                    sourceBaseUrl: post.sourceBaseUrl,
+                  );
                   if (freshPost != null && mounted) {
                     await Navigator.of(context).push(
                       MaterialPageRoute(
@@ -1122,13 +1282,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final likedCount = _bookmarkService.likedCount;
     final savedCount = _bookmarkService.savedCount;
     final readCount = _settings.readCount;
-    final sourceHost =
-        Uri.tryParse(
-          AppConfig.wordpressBaseUrl,
-        )?.host.replaceFirst('www.', '') ??
-        AppConfig.wordpressBaseUrl
-            .replaceFirst('https://', '')
-            .replaceFirst('http://', '');
+    final sourceHost = _blogSource.currentScopeLabel;
     final fontScalePercent = (_settings.fontScale.value * 100).round();
 
     return ListView(
@@ -1281,6 +1435,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     count: readCount,
                     color: const Color(0xFF6FAEEB),
                     isDark: isDark,
+                    onTap: () => _openStatPostsScreen(
+                      title: '已读文章',
+                      emptyTitle: '还没有已读记录',
+                      emptySubtitle: '打开文章后会自动记录到这里。',
+                      emptyIcon: Icons.auto_stories_rounded,
+                      loadPosts: _getReadPostsForView,
+                    ),
                   ),
                   // 分隔线
                   Container(
@@ -1297,6 +1458,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     count: savedCount,
                     color: const Color(0xFFFFB347),
                     isDark: isDark,
+                    onTap: () => _openStatPostsScreen(
+                      title: '收藏文章',
+                      emptyTitle: '还没有收藏文章',
+                      emptySubtitle: '在文章详情页点击收藏后，会显示在这里。',
+                      emptyIcon: Icons.bookmark_rounded,
+                      loadPosts: _getSavedPostsForView,
+                    ),
                   ),
                   // 分隔线
                   Container(
@@ -1313,6 +1481,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     count: likedCount,
                     color: const Color(0xFFFF6B8A),
                     isDark: isDark,
+                    onTap: () => _openStatPostsScreen(
+                      title: '点赞文章',
+                      emptyTitle: '还没有点赞文章',
+                      emptySubtitle: '在文章详情页点赞后，会显示在这里。',
+                      emptyIcon: Icons.favorite_rounded,
+                      loadPosts: _getLikedPostsForView,
+                    ),
                   ),
                 ],
               ),
@@ -1344,6 +1519,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _buildAnimatedEntry(
           delay: 0.25,
           child: _buildSettingsCard(isDark, [
+            _SettingsTile(
+              icon: Icons.hub_rounded,
+              iconColor: const Color(0xFF6366F1),
+              title: '站点与组合',
+              subtitle: _blogSource.currentScopeLabel,
+              onTap: () {
+                HapticFeedback.lightImpact();
+                _showSourceManagerSheet();
+              },
+            ),
             // 🌓 深色模式切换
             _SettingsTile(
               icon: _settings.themeModeIcon,
@@ -1398,10 +1583,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               icon: Icons.language_rounded,
               iconColor: const Color(0xFF10B981),
               title: '访问博客网站',
-              subtitle: AppConfig.wordpressBaseUrl.replaceFirst('https://', ''),
+              subtitle: _blogSource.currentScopeLabel,
               onTap: () async {
                 HapticFeedback.lightImpact();
-                final url = Uri.parse(AppConfig.wordpressBaseUrl);
+                final url = Uri.parse(_blogSource.currentSource);
                 try {
                   await launchUrl(url, mode: LaunchMode.externalApplication);
                 } catch (_) {
@@ -1511,6 +1696,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     required int count,
     required Color color,
     required bool isDark,
+    required VoidCallback onTap,
   }) {
     return Expanded(
       child: TweenAnimationBuilder<double>(
@@ -1518,39 +1704,43 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         duration: const Duration(milliseconds: 1200),
         curve: Curves.easeOutCubic,
         builder: (context, animatedCount, child) {
-          return Column(
-            children: [
-              // 彩色图标
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, size: 20, color: color),
+          return InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(icon, size: 20, color: color),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '${animatedCount.toInt()}',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark
+                          ? AppTheme.darkModeSecondary
+                          : AppTheme.lightText,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
-              // 计数动画数字
-              Text(
-                '${animatedCount.toInt()}',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
-                ),
-              ),
-              const SizedBox(height: 2),
-              // 标签
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDark
-                      ? AppTheme.darkModeSecondary
-                      : AppTheme.lightText,
-                ),
-              ),
-            ],
+            ),
           );
         },
       ),
@@ -1999,6 +2189,369 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           fontWeight: FontWeight.w600,
           color: AppTheme.primaryColor,
         ),
+      ),
+    );
+  }
+
+  void _showSourceManagerSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        final mergedListenable = Listenable.merge([
+          _blogSource.sourceEntries,
+          _blogSource.groups,
+          _blogSource.mode,
+          _blogSource.selectedGroupId,
+          _blogSource.baseUrl,
+        ]);
+
+        return SafeArea(
+          child: AnimatedBuilder(
+            animation: mergedListenable,
+            builder: (context, _) {
+              final sources = _blogSource.sourceEntries.value;
+              final groups = _blogSource.groups.value;
+
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  8,
+                  20,
+                  24 + MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '站点与组合',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '当前范围：${_blogSource.currentScopeLabel}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 16),
+                    SegmentedButton<BlogSourceMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: BlogSourceMode.single,
+                          icon: Icon(Icons.language_rounded),
+                          label: Text('单站点'),
+                        ),
+                        ButtonSegment(
+                          value: BlogSourceMode.aggregate,
+                          icon: Icon(Icons.hub_rounded),
+                          label: Text('聚合'),
+                        ),
+                      ],
+                      selected: <BlogSourceMode>{_blogSource.mode.value},
+                      onSelectionChanged: (selection) async {
+                        final nextMode = selection.first;
+                        if (nextMode == BlogSourceMode.aggregate &&
+                            sources.length <= 1) {
+                          _showToast('至少添加两个站点后才能启用聚合');
+                          return;
+                        }
+                        await _blogSource.setMode(nextMode);
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    Text('站点', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    ...sources.map(_buildSourceListTile),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _showAddSourceDialog,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('添加站点'),
+                    ),
+                    const SizedBox(height: 20),
+                    Text('组合', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        _isAggregateMode &&
+                                _blogSource.selectedGroupId.value == null
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      title: const Text('全部站点聚合'),
+                      subtitle: Text('包含 ${sources.length} 个站点'),
+                    ),
+                    ...groups.map(_buildGroupListTile),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: sources.length < 2 ? null : _showGroupDialog,
+                      icon: const Icon(Icons.collections_bookmark_rounded),
+                      label: const Text('创建站点组合'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSourceListTile(BlogSiteSource source) {
+    final selected =
+        !_isAggregateMode && _blogSource.currentSource == source.baseUrl;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        selected
+            ? Icons.check_circle_rounded
+            : Icons.radio_button_unchecked_rounded,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      title: Text(source.name),
+      subtitle: Text(source.hostLabel),
+      trailing: PopupMenuButton<String>(
+        onSelected: (value) async {
+          if (value == 'rename') {
+            await _showRenameSourceDialog(source);
+            return;
+          }
+          if (value == 'delete') {
+            try {
+              await _blogSource.removeSource(source.baseUrl);
+            } catch (error) {
+              _showToast(error.toString());
+            }
+          }
+        },
+        itemBuilder: (context) => const [
+          PopupMenuItem(value: 'rename', child: Text('重命名')),
+          PopupMenuItem(value: 'delete', child: Text('删除')),
+        ],
+      ),
+      onTap: () async {
+        await _blogSource.selectSource(source.baseUrl);
+      },
+    );
+  }
+
+  Widget _buildGroupListTile(BlogSiteGroup group) {
+    final selected =
+        _isAggregateMode && _blogSource.selectedGroupId.value == group.id;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        selected
+            ? Icons.check_circle_rounded
+            : Icons.radio_button_unchecked_rounded,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      title: Text(group.name),
+      subtitle: Text(
+        group.sourceBaseUrls.map(_blogSource.labelForSource).join(' · '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: PopupMenuButton<String>(
+        onSelected: (value) async {
+          if (value == 'edit') {
+            await _showGroupDialog(group: group);
+            return;
+          }
+          if (value == 'delete') {
+            await _blogSource.deleteGroup(group.id);
+          }
+        },
+        itemBuilder: (context) => const [
+          PopupMenuItem(value: 'edit', child: Text('编辑')),
+          PopupMenuItem(value: 'delete', child: Text('删除')),
+        ],
+      ),
+      onTap: () async {
+        await _blogSource.selectGroup(group.id);
+      },
+    );
+  }
+
+  Future<void> _showAddSourceDialog() async {
+    final nameController = TextEditingController();
+    final urlController = TextEditingController(text: 'https://');
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加站点'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: '站点名称'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(labelText: '站点地址'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              try {
+                await _blogSource.addSource(
+                  urlController.text,
+                  name: nameController.text,
+                );
+                if (ctx.mounted) {
+                  Navigator.of(ctx).pop();
+                }
+              } catch (error) {
+                _showToast(error.toString());
+              }
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRenameSourceDialog(BlogSiteSource source) async {
+    final controller = TextEditingController(text: source.name);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名站点'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: '站点名称'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              try {
+                await _blogSource.renameSource(source.baseUrl, controller.text);
+                if (ctx.mounted) {
+                  Navigator.of(ctx).pop();
+                }
+              } catch (error) {
+                _showToast(error.toString());
+              }
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showGroupDialog({BlogSiteGroup? group}) async {
+    final nameController = TextEditingController(text: group?.name ?? '');
+    final selectedSources = <String>{
+      ...?group?.sourceBaseUrls,
+      if (group == null && _blogSource.sourceEntries.value.isNotEmpty)
+        _blogSource.sourceEntries.value.first.baseUrl,
+    };
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(group == null ? '创建站点组合' : '编辑站点组合'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(labelText: '组合名称'),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '选择站点',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      ..._blogSource.sourceEntries.value.map((source) {
+                        final checked = selectedSources.contains(
+                          source.baseUrl,
+                        );
+                        return CheckboxListTile(
+                          value: checked,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(source.name),
+                          subtitle: Text(source.hostLabel),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              if (value ?? false) {
+                                selectedSources.add(source.baseUrl);
+                              } else {
+                                selectedSources.remove(source.baseUrl);
+                              }
+                            });
+                          },
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    try {
+                      await _blogSource.saveGroup(
+                        id: group?.id,
+                        name: nameController.text,
+                        sourceBaseUrls: selectedSources.toList(),
+                      );
+                      if (ctx.mounted) {
+                        Navigator.of(ctx).pop();
+                      }
+                    } catch (error) {
+                      _showToast(error.toString());
+                    }
+                  },
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showToast(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message.replaceFirst('FormatException: ', '')),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

@@ -19,9 +19,9 @@ void main() async {
     ),
   );
 
-  await BookmarkService().init();
   await LocalDatabaseService().init();
   await BlogSourceService().init();
+  await BookmarkService().init();
   await SettingsService().init();
 
   runApp(const NishikiApp());

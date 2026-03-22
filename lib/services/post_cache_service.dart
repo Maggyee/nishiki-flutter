@@ -21,7 +21,10 @@ class PostCacheService {
 
   String get _sourceBaseUrl => _blogSource.baseUrl.value.trim();
   String _resolveSourceBaseUrl(String? sourceBaseUrl) =>
-      (sourceBaseUrl ?? _sourceBaseUrl).trim();
+      ((sourceBaseUrl == null || sourceBaseUrl.trim().isEmpty)
+              ? _sourceBaseUrl
+              : sourceBaseUrl)
+          .trim();
 
   bool get isSupported => _databaseService.isSupported;
 
@@ -87,17 +90,14 @@ class PostCacheService {
       );
 
       for (final category in categories) {
-        await txn.insert(
-          LocalDatabaseService.categoriesTable,
-          {
-            'id': category.id,
-            'source_base_url': _sourceBaseUrl,
-            'name': category.name,
-            'slug': null,
-            'count': 0,
-            'fetched_at': now,
-          },
-        );
+        await txn.insert(LocalDatabaseService.categoriesTable, {
+          'id': category.id,
+          'source_base_url': _sourceBaseUrl,
+          'name': category.name,
+          'slug': null,
+          'count': 0,
+          'fetched_at': now,
+        });
       }
     });
   }
@@ -131,9 +131,7 @@ class PostCacheService {
     }
 
     if (categoryId != null) {
-      whereParts.add(
-        "category_ids_json LIKE ?",
-      );
+      whereParts.add("category_ids_json LIKE ?");
       whereArgs.add('%$categoryId%');
     }
 
@@ -248,8 +246,9 @@ class PostCacheService {
     final existingContent = existingRows.isNotEmpty
         ? (existingRows.first['content_html'] as String?) ?? ''
         : '';
-    final nextContent =
-        allowEmptyContent && post.contentHtml.isEmpty ? existingContent : post.contentHtml;
+    final nextContent = allowEmptyContent && post.contentHtml.isEmpty
+        ? existingContent
+        : post.contentHtml;
 
     await db.insert(
       LocalDatabaseService.postsTable,
@@ -275,10 +274,7 @@ class PostCacheService {
     );
   }
 
-  WpPost _postFromRow(
-    Map<String, Object?> row, {
-    String? sourceBaseUrl,
-  }) {
+  WpPost _postFromRow(Map<String, Object?> row, {String? sourceBaseUrl}) {
     List<String> categories = const [];
     final categoriesRaw = row['categories_json'] as String?;
     if (categoriesRaw != null && categoriesRaw.isNotEmpty) {
@@ -306,7 +302,8 @@ class PostCacheService {
       excerpt: (row['excerpt'] as String?) ?? '',
       contentHtml: (row['content_html'] as String?) ?? '',
       author: (row['author'] as String?) ?? 'Unknown',
-      date: DateTime.tryParse((row['published_at'] as String?) ?? '') ??
+      date:
+          DateTime.tryParse((row['published_at'] as String?) ?? '') ??
           DateTime.now(),
       featuredImageUrl: row['featured_image_url'] as String?,
       categories: categories,

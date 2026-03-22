@@ -13,7 +13,7 @@ class LocalDatabaseService {
   factory LocalDatabaseService() => _instance;
 
   static const String databaseName = 'nishiki_local.db';
-  static const int databaseVersion = 4;
+  static const int databaseVersion = 5;
 
   static const String postsTable = 'posts';
   static const String categoriesTable = 'categories';
@@ -23,6 +23,9 @@ class LocalDatabaseService {
   static const String readingHistoryTable = 'reading_history';
   static const String aiSummariesTable = 'ai_summaries';
   static const String aiMessagesTable = 'ai_messages';
+  static const String siteSourcesTable = 'site_sources';
+  static const String siteGroupsTable = 'site_groups';
+  static const String siteGroupMembersTable = 'site_group_members';
   static const int defaultMaxCachedPostsPerSource = 240;
   static const Duration defaultMaxCachedPostAge = Duration(days: 45);
 
@@ -31,8 +34,7 @@ class LocalDatabaseService {
 
   bool get isSupported => !kIsWeb;
   bool get _useFfiDesktop =>
-      !kIsWeb &&
-      (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
   Future<void> init() async {
     if (!isSupported || _database != null) {
@@ -52,6 +54,7 @@ class LocalDatabaseService {
       path,
       options: OpenDatabaseOptions(
         version: databaseVersion,
+        onConfigure: _onConfigure,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -65,6 +68,13 @@ class LocalDatabaseService {
 
   Future<void> _onCreate(Database db, int version) async {
     await _createTables(db);
+  }
+
+  Future<void> _onConfigure(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+    await db.execute('PRAGMA journal_mode = WAL');
+    await db.execute('PRAGMA synchronous = NORMAL');
+    await db.execute('PRAGMA temp_store = MEMORY');
   }
 
   Future<void> _createTables(Database db) async {
@@ -189,6 +199,8 @@ class LocalDatabaseService {
       CREATE INDEX idx_ai_messages_post_created
       ON $aiMessagesTable(source_base_url, post_id, created_at ASC)
     ''');
+
+    await _createSourceManagementTables(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -208,6 +220,52 @@ class LocalDatabaseService {
     if (oldVersion < 4) {
       await _migrateToCompositePrimaryKeys(db);
     }
+    if (oldVersion < 5) {
+      await _createSourceManagementTables(db);
+    }
+  }
+
+  Future<void> _createSourceManagementTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $siteSourcesTable (
+        base_url TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_site_sources_name
+      ON $siteSourcesTable(name COLLATE NOCASE ASC)
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $siteGroupsTable (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_site_groups_name
+      ON $siteGroupsTable(name COLLATE NOCASE ASC)
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $siteGroupMembersTable (
+        group_id TEXT NOT NULL,
+        source_base_url TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (group_id, source_base_url),
+        FOREIGN KEY (group_id) REFERENCES $siteGroupsTable(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_base_url) REFERENCES $siteSourcesTable(base_url) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_site_group_members_group_sort
+      ON $siteGroupMembersTable(group_id, sort_order ASC)
+    ''');
   }
 
   Future<void> _migrateToCompositePrimaryKeys(Database db) async {
@@ -348,8 +406,12 @@ class LocalDatabaseService {
       await txn.execute('DROP TABLE $aiMessagesTable');
 
       await txn.execute('ALTER TABLE $postsTableNew RENAME TO $postsTable');
-      await txn.execute('ALTER TABLE $savedPostsTableNew RENAME TO $savedPostsTable');
-      await txn.execute('ALTER TABLE $likedPostsTableNew RENAME TO $likedPostsTable');
+      await txn.execute(
+        'ALTER TABLE $savedPostsTableNew RENAME TO $savedPostsTable',
+      );
+      await txn.execute(
+        'ALTER TABLE $likedPostsTableNew RENAME TO $likedPostsTable',
+      );
       await txn.execute(
         'ALTER TABLE $readingHistoryTableNew RENAME TO $readingHistoryTable',
       );
@@ -394,6 +456,9 @@ class LocalDatabaseService {
       await txn.delete(postCategoriesTable);
       await txn.delete(categoriesTable);
       await txn.delete(postsTable);
+      await txn.delete(siteGroupMembersTable);
+      await txn.delete(siteGroupsTable);
+      await txn.delete(siteSourcesTable);
     });
   }
 
@@ -418,8 +483,9 @@ class LocalDatabaseService {
     final totalRows = await db.rawQuery(
       'SELECT COUNT(*) AS count FROM $postsTable',
     );
-    final totalPostCount =
-        totalRows.isNotEmpty ? ((totalRows.first['count'] as int?) ?? 0) : 0;
+    final totalPostCount = totalRows.isNotEmpty
+        ? ((totalRows.first['count'] as int?) ?? 0)
+        : 0;
 
     var currentSourcePostCount = totalPostCount;
     if (sourceBaseUrl != null && sourceBaseUrl.isNotEmpty) {
@@ -427,8 +493,9 @@ class LocalDatabaseService {
         'SELECT COUNT(*) AS count FROM $postsTable WHERE source_base_url = ?',
         [sourceBaseUrl],
       );
-      currentSourcePostCount =
-          sourceRows.isNotEmpty ? ((sourceRows.first['count'] as int?) ?? 0) : 0;
+      currentSourcePostCount = sourceRows.isNotEmpty
+          ? ((sourceRows.first['count'] as int?) ?? 0)
+          : 0;
     }
 
     final bytes = await _readDatabaseFileBytes();
@@ -450,10 +517,7 @@ class LocalDatabaseService {
       await txn.delete(categoriesTable);
     });
 
-    await pruneAllSourcesCache(
-      maxPosts: 0,
-      maxAge: Duration.zero,
-    );
+    await pruneAllSourcesCache(maxPosts: 0, maxAge: Duration.zero);
   }
 
   Future<void> pruneSourceCache(
@@ -511,7 +575,9 @@ class LocalDatabaseService {
         retainedUnprotected += 1;
         final fetchedAt = row['fetched_at'] as String?;
         final isOlderThanCutoff =
-            fetchedAt != null && fetchedAt.isNotEmpty && fetchedAt.compareTo(cutoff) < 0;
+            fetchedAt != null &&
+            fetchedAt.isNotEmpty &&
+            fetchedAt.compareTo(cutoff) < 0;
 
         if (retainedUnprotected > maxPosts) {
           overflowIds.add(id);

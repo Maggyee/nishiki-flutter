@@ -9,6 +9,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final service = BookmarkService();
 
+    await service.clearAll();
     await service.init();
 
     expect(service.likedCount, 0);
@@ -21,17 +22,20 @@ void main() {
     expect(service.isLiked(11), isTrue);
     expect(service.likedCount, 1);
 
-    final saved = await service.toggleSave(11, postData: {
-      'id': 11,
-      'title': 'Saved post',
-      'excerpt': 'Summary',
-      'author': 'Author',
-      'date': '2026-03-17T00:00:00.000',
-      'featuredImageUrl': null,
-      'categories': ['Testing'],
-      'link': 'https://example.com/11',
-      'readMinutes': 3,
-    });
+    final saved = await service.toggleSave(
+      11,
+      postData: {
+        'id': 11,
+        'title': 'Saved post',
+        'excerpt': 'Summary',
+        'author': 'Author',
+        'date': '2026-03-17T00:00:00.000',
+        'featuredImageUrl': null,
+        'categories': ['Testing'],
+        'link': 'https://example.com/11',
+        'readMinutes': 3,
+      },
+    );
 
     expect(saved, isTrue);
     expect(service.isSaved(11), isTrue);

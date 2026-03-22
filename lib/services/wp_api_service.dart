@@ -71,10 +71,7 @@ class WpApiService {
   }
 
   Future<WpPost?> getCachedPostById(int postId, {String? sourceBaseUrl}) {
-    return _postCache.getCachedPostById(
-      postId,
-      sourceBaseUrl: sourceBaseUrl,
-    );
+    return _postCache.getCachedPostById(postId, sourceBaseUrl: sourceBaseUrl);
   }
 
   Uri _buildUri(
@@ -82,32 +79,30 @@ class WpApiService {
     Map<String, String>? query,
     String? sourceBaseUrl,
   ]) {
-    final base = (sourceBaseUrl ?? _blogSource.baseUrl.value).trim();
-    final normalizedBase =
-        base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    final requestedBase = sourceBaseUrl?.trim();
+    final base = (requestedBase == null || requestedBase.isEmpty)
+        ? _blogSource.baseUrl.value.trim()
+        : requestedBase;
+    final normalizedBase = base.endsWith('/')
+        ? base.substring(0, base.length - 1)
+        : base;
     final normalizedPath = path.startsWith('/') ? path : '/$path';
-    return Uri.parse('$normalizedBase$normalizedPath')
-        .replace(queryParameters: query);
+    return Uri.parse(
+      '$normalizedBase$normalizedPath',
+    ).replace(queryParameters: query);
   }
 
   Future<List<WpCategory>> fetchCategories() async {
     if (_blogSource.mode.value == BlogSourceMode.aggregate) {
-      final merged = <int, WpCategory>{};
-      for (final source in _blogSource.activeSources) {
-        final categories = await _fetchCategoriesFromSource(source);
-        for (final category in categories) {
-          merged.putIfAbsent(category.id, () => category);
-        }
-      }
-      final result = merged.values.toList()
-        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      return result;
+      return const [];
     }
 
     return _fetchCategoriesFromSource(_blogSource.baseUrl.value.trim());
   }
 
-  Future<List<WpCategory>> _fetchCategoriesFromSource(String sourceBaseUrl) async {
+  Future<List<WpCategory>> _fetchCategoriesFromSource(
+    String sourceBaseUrl,
+  ) async {
     final uri = _buildUri('/wp-json/wp/v2/categories', {
       'per_page': '50',
       'hide_empty': 'true',
@@ -223,7 +218,11 @@ class WpApiService {
 
     try {
       for (final source in _blogSource.activeSources) {
-        for (int currentPage = 1; currentPage <= perSourceTargetPage; currentPage++) {
+        for (
+          int currentPage = 1;
+          currentPage <= perSourceTargetPage;
+          currentPage++
+        ) {
           final posts = await _fetchPostsFromSource(
             source,
             search: search,
@@ -250,10 +249,7 @@ class WpApiService {
     }
   }
 
-  List<WpPost> _sliceAggregatedPosts(
-    List<WpPost> posts, {
-    required int page,
-  }) {
+  List<WpPost> _sliceAggregatedPosts(List<WpPost> posts, {required int page}) {
     final deduped = <String, WpPost>{};
     for (final post in posts) {
       deduped.putIfAbsent('${post.sourceBaseUrl}::${post.id}', () => post);
@@ -269,24 +265,20 @@ class WpApiService {
   }
 
   Future<WpPost?> fetchPostById(int postId, {String? sourceBaseUrl}) async {
-    final resolvedSource = (sourceBaseUrl ?? _blogSource.baseUrl.value).trim();
-    final uri = _buildUri(
-      '/wp-json/wp/v2/posts/$postId',
-      {
-        '_embed': '1',
-      },
-      resolvedSource,
-    );
+    final requestedSource = sourceBaseUrl?.trim();
+    final resolvedSource = (requestedSource == null || requestedSource.isEmpty)
+        ? _blogSource.baseUrl.value.trim()
+        : requestedSource;
+    final uri = _buildUri('/wp-json/wp/v2/posts/$postId', {
+      '_embed': '1',
+    }, resolvedSource);
 
     try {
       final response = await _safeGet(uri);
       _ensureSuccess(response);
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final post = WpPost.fromJson(
-        data,
-        sourceBaseUrl: resolvedSource,
-      );
+      final post = WpPost.fromJson(data, sourceBaseUrl: resolvedSource);
       await _postCache.cachePostDetail(post);
       return post;
     } catch (error) {

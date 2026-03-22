@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local screenshots and doc capture images
+/*.png
+/docs/*.png
+/docs/figma-capture/*.png

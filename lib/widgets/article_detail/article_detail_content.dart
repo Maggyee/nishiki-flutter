@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
@@ -84,16 +83,27 @@ class ArticleDetailContent extends StatelessWidget {
                     data: post.contentHtml,
                     style: _buildHtmlStyles(isDark, fontScale),
                     extensions: [
-                      if (kIsWeb)
-                        ImageExtension(
-                          builder: (context) => _HtmlNetworkImage(
-                            src: context.attributes['src'] ?? '',
-                            alt: context.attributes['alt'] ?? '',
-                            width: context.style?.width?.value,
-                            height: context.style?.height?.value,
-                            isDark: isDark,
-                          ),
+                      ImageExtension(
+                        builder: (context) => _HtmlNetworkImage(
+                          src: context.attributes['src'] ?? '',
+                          alt: context.attributes['alt'] ?? '',
+                          width:
+                              context.style?.width?.value ??
+                              _tryParseDimension(context.attributes['width']),
+                          height:
+                              context.style?.height?.value ??
+                              _tryParseDimension(context.attributes['height']),
+                          isDark: isDark,
                         ),
+                      ),
+                      TagExtension(
+                        tagsToExtend: {'pre'},
+                        builder: (context) => _HtmlCodeBlock(
+                          code: _extractCodeBlockText(context.element),
+                          isDark: isDark,
+                          fontScale: fontScale,
+                        ),
+                      ),
                       TagExtension(
                         tagsToExtend: {'table'},
                         builder: (context) => _HtmlTableWidget(
@@ -334,56 +344,156 @@ class _HtmlNetworkImage extends StatelessWidget {
         final maxWidth = constraints.maxWidth.isFinite
             ? constraints.maxWidth
             : MediaQuery.of(context).size.width;
-        final resolvedWidth = width == null
+        final resolvedWidth = width == null || width!.isNaN || width! <= 0
             ? maxWidth
             : width!.clamp(0, maxWidth).toDouble();
+        final resolvedHeight = height == null || height!.isNaN || height! <= 0
+            ? null
+            : height;
+        final maxImageHeight = MediaQuery.of(context).size.height * 0.58;
 
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          child: Image.network(
-            src,
-            width: resolvedWidth,
-            height: height,
-            fit: BoxFit.contain,
-            webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) {
-                return child;
-              }
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.cardDark : Colors.white,
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            border: Border.all(
+              color: isDark ? AppTheme.surfaceMutedDark : AppTheme.dividerColor,
+            ),
+            boxShadow: isDark ? null : AppTheme.softShadow,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: resolvedHeight ?? maxImageHeight,
+            ),
+            child: Image.network(
+              src,
+              width: resolvedWidth,
+              height: resolvedHeight,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) {
+                  return child;
+                }
 
-              return Container(
-                width: resolvedWidth,
-                height: height ?? 220,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.cardDark : AppTheme.primaryLight,
-                ),
-                child: const CircularProgressIndicator(strokeWidth: 2),
-              );
-            },
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                width: resolvedWidth,
-                height: height ?? 140,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.cardDark : AppTheme.primaryLight,
-                ),
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  alt.isNotEmpty ? alt : '图片加载失败',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: isDark
-                        ? AppTheme.darkModeSecondary
-                        : AppTheme.mediumText,
+                return _HtmlImagePlaceholder(
+                  width: resolvedWidth,
+                  height: resolvedHeight ?? 220,
+                  isDark: isDark,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return _HtmlImagePlaceholder(
+                  width: resolvedWidth,
+                  height: resolvedHeight ?? 140,
+                  isDark: isDark,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      alt.isNotEmpty ? alt : '图片加载失败',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: isDark
+                            ? AppTheme.darkModeSecondary
+                            : AppTheme.mediumText,
+                      ),
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+class _HtmlImagePlaceholder extends StatelessWidget {
+  const _HtmlImagePlaceholder({
+    required this.width,
+    required this.height,
+    required this.isDark,
+    required this.child,
+  });
+
+  final double width;
+  final double height;
+  final bool isDark;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.cardDark : AppTheme.primaryLight,
+      ),
+      child: child,
+    );
+  }
+}
+
+class _HtmlCodeBlock extends StatelessWidget {
+  const _HtmlCodeBlock({
+    required this.code,
+    required this.isDark,
+    required this.fontScale,
+  });
+
+  final String code;
+  final bool isDark;
+  final double fontScale;
+
+  @override
+  Widget build(BuildContext context) {
+    if (code.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final background = isDark ? AppTheme.cardDark : const Color(0xFFF8FAFC);
+    final borderColor = isDark
+        ? AppTheme.surfaceMutedDark
+        : AppTheme.dividerColor;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: borderColor),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: SelectableText(
+            code,
+            style: TextStyle(
+              fontSize: 14 * fontScale,
+              height: 1.7,
+              color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
+              fontFamily: 'Consolas',
+              fontFamilyFallback: const [
+                'Cascadia Code',
+                'SFMono-Regular',
+                'Menlo',
+                'Monaco',
+                'Courier New',
+                'monospace',
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -612,16 +722,41 @@ Map<String, Style> _buildHtmlStyles(bool isDark, double fontScale) {
       lineHeight: const LineHeight(1.6),
     ),
     'code': Style(
-      backgroundColor: isDark ? AppTheme.cardDark : const Color(0xFFF5F5F5),
+      backgroundColor: isDark
+          ? AppTheme.surfaceMutedDark
+          : const Color(0xFFF1F5F9),
       padding: HtmlPaddings.symmetric(horizontal: 6, vertical: 2),
       fontSize: FontSize(14 * fontScale),
+      fontFamily: 'Consolas',
     ),
     'pre': Style(
-      backgroundColor: isDark ? AppTheme.cardDark : const Color(0xFFF5F5F5),
-      padding: HtmlPaddings.all(16),
       margin: Margins.only(top: 16, bottom: 16),
+      padding: HtmlPaddings.zero,
+      backgroundColor: Colors.transparent,
     ),
   };
+}
+
+double? _tryParseDimension(String? raw) {
+  if (raw == null || raw.trim().isEmpty) {
+    return null;
+  }
+
+  final value = raw.trim().replaceAll('px', '');
+  return double.tryParse(value);
+}
+
+String _extractCodeBlockText(html.Element? element) {
+  if (element == null) {
+    return '';
+  }
+
+  final codeElement = element.querySelector('code');
+  final textSource = codeElement ?? element;
+  return textSource.text
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .trimRight();
 }
 
 String _formatSourceLabel(String sourceBaseUrl) {
