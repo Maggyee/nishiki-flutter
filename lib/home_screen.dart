@@ -41,9 +41,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   WpApiException? _apiError;
 
   // ===== Profile 页面动画控制器 =====
-  late AnimationController _avatarPulseCtrl;    // 头像呼吸脉冲
-  late AnimationController _profileEnterCtrl;   // 入场动画
-  late Animation<double> _avatarPulseAnim;      // 脉冲缩放动画
+  late AnimationController _avatarPulseCtrl; // 头像呼吸脉冲
+  late AnimationController _profileEnterCtrl; // 入场动画
+  late Animation<double> _avatarPulseAnim; // 脉冲缩放动画
   int _tabIndex = 0;
   int? _selectedCategoryId;
   Timer? _searchDebounce;
@@ -81,7 +81,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _scheduleSearch({String? forcedTerm, Duration delay = const Duration(milliseconds: 280)}) {
+  void _scheduleSearch({
+    String? forcedTerm,
+    Duration delay = const Duration(milliseconds: 280),
+  }) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(delay, () {
       _search(forcedTerm);
@@ -155,7 +158,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final savedData = await _bookmarkService.getSavedPostsData();
       if (mounted) {
         setState(() {
-          _savedPosts = savedData.map((data) => WpPost.fromSummaryMap(data)).toList();
+          _savedPosts = savedData
+              .map((data) => WpPost.fromSummaryMap(data))
+              .toList();
           _savedLoading = false;
         });
       }
@@ -317,10 +322,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-            child: Text(
-              '今日精选',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            child: Text('今日精选', style: Theme.of(context).textTheme.titleLarge),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -352,16 +354,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
           child: Text(
             '精选推荐',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         HeroArticleCard(
           post: featured,
           onTap: () async {
             await Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: featured)),
+              MaterialPageRoute(
+                builder: (_) => ArticleDetailScreen(post: featured),
+              ),
             );
           },
         ),
@@ -452,7 +456,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 width: selected ? 2 : 1,
               ),
               onSelected: (_) {
-                setState(() => _selectedCategoryId = selected ? null : category.id);
+                setState(
+                  () => _selectedCategoryId = selected ? null : category.id,
+                );
                 _scheduleSearch(delay: Duration.zero);
               },
             );
@@ -507,7 +513,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('无法加载内容', style: TextStyle(fontWeight: FontWeight.w700)),
+                const Text(
+                  '无法加载内容',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 8),
                 Text(_error!),
                 const SizedBox(height: 8),
@@ -537,15 +546,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       );
     }
 
-    final displayPosts =
-        skipFirst && _posts.length > 1 ? _posts.skip(1).toList() : _posts;
+    final displayPosts = skipFirst && _posts.length > 1
+        ? _posts.skip(1).toList()
+        : _posts;
 
     if (displayPosts.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(24),
-        child: Center(
-          child: Text('没有找到匹配的文章，请尝试其他关键词或分类。'),
-        ),
+        child: Center(child: Text('没有找到匹配的文章，请尝试其他关键词或分类。')),
       );
     }
 
@@ -557,7 +565,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (index == 0) {
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text(sectionTitle, style: Theme.of(context).textTheme.titleMedium),
+            child: Text(
+              sectionTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
           );
         }
 
@@ -566,7 +577,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           post: post,
           onTap: () async {
             await Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: post)),
+              MaterialPageRoute(
+                builder: (_) => ArticleDetailScreen(post: post),
+              ),
             );
             if (_tabIndex == 2) _loadSavedPosts();
           },
@@ -602,7 +615,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Text(sectionTitle, style: Theme.of(context).textTheme.titleMedium),
+          child: Text(
+            sectionTitle,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
         ),
         ...List.generate(count, (_) {
           return Padding(
@@ -650,7 +666,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 padding: EdgeInsets.only(top: 2, right: 6),
                 child: Icon(Icons.info_outline, size: 14),
               ),
-              Expanded(child: Text(tip, style: Theme.of(context).textTheme.bodySmall)),
+              Expanded(
+                child: Text(tip, style: Theme.of(context).textTheme.bodySmall),
+              ),
             ],
           ),
         ),
@@ -724,7 +742,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.6,
-                  color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                  color: isDark
+                      ? AppTheme.darkModeSecondary
+                      : AppTheme.lightText,
                 ),
               ),
               const SizedBox(height: 28),
@@ -734,7 +754,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 label: const Text('去发现文章'),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.primaryColor,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -764,17 +787,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       children: [
                         Text(
                           '我的收藏',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
-                          ),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: isDark
+                                    ? AppTheme.darkModeText
+                                    : AppTheme.darkText,
+                              ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           '共 ${_savedPosts.length} 篇文章',
                           style: TextStyle(
                             fontSize: 13,
-                            color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                            color: isDark
+                                ? AppTheme.darkModeSecondary
+                                : AppTheme.lightText,
                           ),
                         ),
                       ],
@@ -822,9 +850,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 24),
+            Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.redAccent,
+              size: 24,
+            ),
             SizedBox(height: 4),
-            Text('取消收藏', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+            Text(
+              '取消收藏',
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
@@ -840,11 +879,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           SnackBar(
             content: Text('已取消收藏：${post.title}'),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             action: SnackBarAction(
               label: '撤销',
               onPressed: () async {
-                await _bookmarkService.toggleSave(post.id, postData: post.toSummaryMap());
+                await _bookmarkService.toggleSave(
+                  post.id,
+                  postData: post.toSummaryMap(),
+                );
                 _loadSavedPosts();
               },
             ),
@@ -865,7 +909,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   SnackBar(
                     content: const Text('加载文章内容中...'),
                     behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     duration: const Duration(seconds: 1),
                   ),
                 );
@@ -873,7 +919,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   final freshPost = await _api.fetchPostById(post.id);
                   if (freshPost != null && mounted) {
                     await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: freshPost)),
+                      MaterialPageRoute(
+                        builder: (_) => ArticleDetailScreen(post: freshPost),
+                      ),
                     );
                     _loadSavedPosts();
                   }
@@ -883,14 +931,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       SnackBar(
                         content: const Text('无法加载文章，请检查网络连接'),
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     );
                   }
                 }
               } else {
                 await Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: post)),
+                  MaterialPageRoute(
+                    builder: (_) => ArticleDetailScreen(post: post),
+                  ),
                 );
                 _loadSavedPosts();
               }
@@ -919,13 +971,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             placeholder: (context, url) => Container(
                               width: 80,
                               height: 80,
-                              color: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor,
+                              color: isDark
+                                  ? AppTheme.surfaceDark
+                                  : AppTheme.dividerColor,
                             ),
                             errorWidget: (context, url, error) => Container(
                               width: 80,
                               height: 80,
                               color: AppTheme.primaryLight,
-                              child: const Icon(Icons.image_outlined, color: AppTheme.primaryColor),
+                              child: const Icon(
+                                Icons.image_outlined,
+                                color: AppTheme.primaryColor,
+                              ),
                             ),
                           )
                         : Container(
@@ -968,10 +1025,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           post.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            height: 1.3,
-                          ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                height: 1.3,
+                              ),
                         ),
                         const SizedBox(height: 6),
                         Row(
@@ -980,13 +1038,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               post.author,
                               style: TextStyle(
                                 fontSize: 11,
-                                color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                                color: isDark
+                                    ? AppTheme.darkModeSecondary
+                                    : AppTheme.lightText,
                               ),
                             ),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
                               child: Container(
-                                width: 3, height: 3,
+                                width: 3,
+                                height: 3,
                                 decoration: const BoxDecoration(
                                   color: AppTheme.lightText,
                                   shape: BoxShape.circle,
@@ -997,7 +1060,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               _formatDate(post.date),
                               style: TextStyle(
                                 fontSize: 11,
-                                color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                                color: isDark
+                                    ? AppTheme.darkModeSecondary
+                                    : AppTheme.lightText,
                               ),
                             ),
                           ],
@@ -1007,7 +1072,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                   const Padding(
                     padding: EdgeInsets.only(left: 8),
-                    child: Icon(Icons.bookmark_rounded, color: AppTheme.primaryColor, size: 22),
+                    child: Icon(
+                      Icons.bookmark_rounded,
+                      color: AppTheme.primaryColor,
+                      size: 22,
+                    ),
                   ),
                 ],
               ),
@@ -1053,6 +1122,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final likedCount = _bookmarkService.likedCount;
     final savedCount = _bookmarkService.savedCount;
     final readCount = _settings.readCount;
+    final sourceHost =
+        Uri.tryParse(
+          AppConfig.wordpressBaseUrl,
+        )?.host.replaceFirst('www.', '') ??
+        AppConfig.wordpressBaseUrl
+            .replaceFirst('https://', '')
+            .replaceFirst('http://', '');
+    final fontScalePercent = (_settings.fontScale.value * 100).round();
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 40),
@@ -1089,19 +1166,41 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           shape: BoxShape.circle,
                           color: Colors.white.withValues(alpha: 0.2),
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.3 + 0.2 * (_avatarPulseAnim.value - 1.0) / 0.08),
+                            color: Colors.white.withValues(
+                              alpha:
+                                  0.3 +
+                                  0.2 * (_avatarPulseAnim.value - 1.0) / 0.08,
+                            ),
                             width: 2,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.white.withValues(alpha: 0.1 + 0.15 * (_avatarPulseAnim.value - 1.0) / 0.08),
+                              color: Colors.white.withValues(
+                                alpha:
+                                    0.1 +
+                                    0.15 *
+                                        (_avatarPulseAnim.value - 1.0) /
+                                        0.08,
+                              ),
                               blurRadius: 16 * _avatarPulseAnim.value,
                               spreadRadius: 2,
                             ),
                           ],
                         ),
-                        child: const Center(
-                          child: Icon(Icons.person_rounded, size: 36, color: Colors.white),
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/images/site_avatar.webp',
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(
+                                child: Icon(
+                                  Icons.person_rounded,
+                                  size: 36,
+                                  color: Colors.white,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     );
@@ -1120,11 +1219,41 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  AppConfig.wordpressBaseUrl.replaceFirst('https://', '').replaceFirst('http://', ''),
+                  sourceHost,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 13,
                   ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '你的阅读偏好、站点来源和阅读记录都会保存在这里。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    fontSize: 12,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildProfileBadge(
+                      icon: _settings.themeModeIcon,
+                      label: _settings.themeModeName,
+                    ),
+                    _buildProfileBadge(
+                      icon: Icons.text_fields_rounded,
+                      label: '$fontScalePercent% 字号',
+                    ),
+                    _buildProfileBadge(
+                      icon: Icons.language_rounded,
+                      label: sourceHost,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1154,7 +1283,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     isDark: isDark,
                   ),
                   // 分隔线
-                  Container(width: 1, height: 40, color: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: isDark
+                        ? AppTheme.surfaceDark
+                        : AppTheme.dividerColor,
+                  ),
                   // 收藏
                   _buildAnimatedStatItem(
                     icon: Icons.bookmark_rounded,
@@ -1164,7 +1299,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     isDark: isDark,
                   ),
                   // 分隔线
-                  Container(width: 1, height: 40, color: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: isDark
+                        ? AppTheme.surfaceDark
+                        : AppTheme.dividerColor,
+                  ),
                   // 点赞
                   _buildAnimatedStatItem(
                     icon: Icons.favorite_rounded,
@@ -1269,7 +1410,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       SnackBar(
                         content: const Text('无法打开浏览器'),
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     );
                   }
@@ -1349,7 +1492,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 'Nishiki 用 💙 制作',
                 style: TextStyle(
                   fontSize: 12,
-                  color: isDark ? AppTheme.darkModeSecondary.withValues(alpha: 0.6) : AppTheme.lightText.withValues(alpha: 0.5),
+                  color: isDark
+                      ? AppTheme.darkModeSecondary.withValues(alpha: 0.6)
+                      : AppTheme.lightText.withValues(alpha: 0.5),
                 ),
               ),
             ),
@@ -1400,7 +1545,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 label,
                 style: TextStyle(
                   fontSize: 12,
-                  color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                  color: isDark
+                      ? AppTheme.darkModeSecondary
+                      : AppTheme.lightText,
                 ),
               ),
             ],
@@ -1448,6 +1595,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         decoration: BoxDecoration(
           color: isDark ? AppTheme.cardDark : AppTheme.cardLight,
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.06)
+                : AppTheme.dividerStrong.withValues(alpha: 0.65),
+          ),
           boxShadow: isDark ? null : AppTheme.softShadow,
         ),
         child: Column(
@@ -1459,7 +1611,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   padding: const EdgeInsets.only(left: 60),
                   child: Divider(
                     height: 1,
-                    color: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor,
+                    color: isDark
+                        ? AppTheme.surfaceDark
+                        : AppTheme.dividerColor,
                   ),
                 ),
             ],
@@ -1506,7 +1660,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       tile.subtitle!,
                       style: TextStyle(
                         fontSize: 12,
-                        color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+                        color: isDark
+                            ? AppTheme.darkModeSecondary
+                            : AppTheme.lightText,
                       ),
                     ),
                   ],
@@ -1550,7 +1706,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(_settings.themeModeIcon, size: 14, color: AppTheme.primaryColor),
+            Icon(
+              _settings.themeModeIcon,
+              size: 14,
+              color: AppTheme.primaryColor,
+            ),
             const SizedBox(width: 4),
             Text(
               _settings.themeModeName,
@@ -1567,6 +1727,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   /// 字体大小滑块（带触觉反馈 + 字号预览动画）
+  Widget _buildProfileBadge({required IconData icon, required String label}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFontScaleSlider(bool isDark) {
     return SizedBox(
       width: 130,
@@ -1591,7 +1777,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 trackHeight: 3,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
                 activeTrackColor: AppTheme.primaryColor,
-                inactiveTrackColor: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor,
+                inactiveTrackColor: isDark
+                    ? AppTheme.surfaceDark
+                    : AppTheme.dividerColor,
                 thumbColor: AppTheme.primaryColor,
                 overlayColor: AppTheme.primaryColor.withValues(alpha: 0.1),
               ),
@@ -1650,7 +1838,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 SnackBar(
                   content: const Text('✅ 缓存已清除'),
                   behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               );
             },
@@ -1667,9 +1857,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('⚠️ 重置所有数据？'),
-        content: const Text(
-          '这将清除你的所有收藏、点赞、阅读记录和设置。\n\n此操作不可逆！',
-        ),
+        content: const Text('这将清除你的所有收藏、点赞、阅读记录和设置。\n\n此操作不可逆！'),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         actions: [
           TextButton(
@@ -1689,7 +1877,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   SnackBar(
                     content: const Text('✅ 所有数据已重置'),
                     behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 );
               }
@@ -1741,7 +1931,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             const SizedBox(height: 16),
             Text(
               'Nishiki Blog',
-              style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                ctx,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 4),
             Text(
@@ -1758,7 +1950,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               style: TextStyle(
                 fontSize: 13,
                 height: 1.6,
-                color: isDark ? AppTheme.darkModeSecondary : AppTheme.mediumText,
+                color: isDark
+                    ? AppTheme.darkModeSecondary
+                    : AppTheme.mediumText,
               ),
             ),
             const SizedBox(height: 20),
@@ -1867,9 +2061,10 @@ class _PressableScaleState extends State<_PressableScale>
       reverseDuration: const Duration(milliseconds: 200),
     );
     // 按下缩小到 0.97，松开恢复 1.0
-    _scaleAnim = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
+    _scaleAnim = Tween<double>(
+      begin: 1.0,
+      end: 0.97,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -1887,19 +2082,16 @@ class _PressableScaleState extends State<_PressableScale>
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _ctrl.forward(),   // 按下 → 缩小
+      onTapDown: (_) => _ctrl.forward(), // 按下 → 缩小
       onTapUp: (_) {
-        _ctrl.reverse();                    // 松开 → 恢复
+        _ctrl.reverse(); // 松开 → 恢复
         widget.onTap?.call();
       },
-      onTapCancel: () => _ctrl.reverse(),   // 取消 → 恢复
+      onTapCancel: () => _ctrl.reverse(), // 取消 → 恢复
       child: AnimatedBuilder(
         animation: _scaleAnim,
         builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnim.value,
-            child: child,
-          );
+          return Transform.scale(scale: _scaleAnim.value, child: child);
         },
         child: widget.child,
       ),

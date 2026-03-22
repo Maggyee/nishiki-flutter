@@ -40,8 +40,14 @@ dependencies:
   flutter_html_table: ^3.0.0
   cached_network_image: ^3.4.1
   shared_preferences: ^2.3.4
+  sqflite: ^2.4.2
+  sqflite_common_ffi: ^2.3.6
+  path: ^1.9.1
   share_plus: ^10.1.4
   url_launcher: ^6.3.1
+  shimmer: ^3.0.0
+  flutter_cache_manager: ^3.4.1
+  google_generative_ai: ^0.4.6
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +79,12 @@ flutter:
     - family: NotoSansSCSubset
       fonts:
         - asset: assets/fonts/NotoSansSCSubset-Regular.otf
+    - family: NotoSansCJKjpFallback
+      fonts:
+        - asset: assets/fonts/NotoSansCJKjp-Regular.otf
+    - family: NotoEmojiFallback
+      fonts:
+        - asset: assets/fonts/NotoColorEmoji.ttf
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -51,6 +51,14 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // Work around a Windows accessibility bridge crash in the current
+  // Flutter engine by opting out of exposing an accessibility object.
+  // This disables assistive-tech integration on desktop, but keeps the
+  // app process stable until the upstream engine issue is resolved.
+  if (message == WM_GETOBJECT) {
+    return 0;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

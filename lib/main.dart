@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'config.dart';
-import 'theme/app_theme.dart';
 import 'home_screen.dart';
+import 'services/blog_source_service.dart';
 import 'services/bookmark_service.dart';
+import 'services/local_database_service.dart';
 import 'services/settings_service.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,14 +19,14 @@ void main() async {
     ),
   );
 
-  // 初始化核心服务
   await BookmarkService().init();
+  await LocalDatabaseService().init();
+  await BlogSourceService().init();
   await SettingsService().init();
 
   runApp(const NishikiApp());
 }
 
-/// 应用根组件 — 监听 SettingsService 的主题模式变化
 class NishikiApp extends StatefulWidget {
   const NishikiApp({super.key});
 
@@ -38,7 +40,6 @@ class _NishikiAppState extends State<NishikiApp> {
   @override
   void initState() {
     super.initState();
-    // 监听主题模式变化 — 当用户在 Profile 页切换时刷新整个 app
     _settings.themeMode.addListener(_onThemeChanged);
   }
 
@@ -49,7 +50,7 @@ class _NishikiAppState extends State<NishikiApp> {
   }
 
   void _onThemeChanged() {
-    setState(() {}); // 触发 MaterialApp 重建以应用新主题
+    setState(() {});
   }
 
   @override
@@ -59,13 +60,12 @@ class _NishikiAppState extends State<NishikiApp> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: _settings.themeMode.value, // 从设置服务读取主题模式
+      themeMode: _settings.themeMode.value,
       home: const _BootstrapGate(),
     );
   }
 }
 
-/// 启动引导页 — 检查 WordPress URL 配置
 class _BootstrapGate extends StatelessWidget {
   const _BootstrapGate();
 

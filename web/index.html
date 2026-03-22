@@ -20,6 +20,10 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
 
+  <link rel="preload" href="assets/fonts/NotoSansSCSubset-Regular.otf" as="font" type="font/otf" crossorigin>
+  <link rel="preload" href="assets/fonts/NotoSansCJKjp-Regular.otf" as="font" type="font/otf" crossorigin>
+  <link rel="preload" href="assets/fonts/NotoColorEmoji.ttf" as="font" type="font/ttf" crossorigin>
+
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -31,8 +35,37 @@
 
   <title>nishiki_flutter</title>
   <link rel="manifest" href="manifest.json">
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    const codexFontPreload = async () => {
+      if (!('fonts' in document)) {
+        return;
+      }
+
+      const fontLoads = [
+        document.fonts.load('14px "NotoSansSCSubset"'),
+        document.fonts.load('14px "NotoSansCJKjpFallback"'),
+        document.fonts.load('14px "NotoEmojiFallback"'),
+      ];
+
+      await Promise.race([
+        Promise.allSettled(fontLoads),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
+    };
+
+    const startFlutterApp = () => {
+      const script = document.createElement('script');
+      script.src = 'flutter_bootstrap.js';
+      script.async = true;
+      document.body.appendChild(script);
+    };
+
+    codexFontPreload()
+      .catch(() => {})
+      .finally(startFlutterApp);
+  </script>
 </body>
 </html>

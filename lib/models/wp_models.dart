@@ -49,6 +49,7 @@ class WpCategory {
 
 class WpPost {
   const WpPost({
+    required this.sourceBaseUrl,
     required this.id,
     required this.title,
     required this.excerpt,
@@ -57,10 +58,12 @@ class WpPost {
     required this.date,
     required this.featuredImageUrl,
     required this.categories,
+    required this.categoryIds,
     required this.link,
     required this.readMinutes,
   });
 
+  final String sourceBaseUrl;
   final int id;
   final String title;
   final String excerpt;
@@ -69,6 +72,7 @@ class WpPost {
   final DateTime date;
   final String? featuredImageUrl;
   final List<String> categories;
+  final List<int> categoryIds;
   final String link; // 文章原始链接（用于分享）
   final int readMinutes;
 
@@ -83,6 +87,7 @@ class WpPost {
   /// 转换为简要 Map（用于本地收藏存储，不含完整 HTML 内容）
   Map<String, dynamic> toSummaryMap() {
     return {
+      'sourceBaseUrl': sourceBaseUrl,
       'id': id,
       'title': title,
       'excerpt': excerpt,
@@ -90,6 +95,7 @@ class WpPost {
       'date': date.toIso8601String(),
       'featuredImageUrl': featuredImageUrl,
       'categories': categories,
+      'categoryIds': categoryIds,
       'link': link,
       'readMinutes': readMinutes,
     };
@@ -98,6 +104,7 @@ class WpPost {
   /// 从本地存储的简要 Map 恢复
   factory WpPost.fromSummaryMap(Map<String, dynamic> map) {
     return WpPost(
+      sourceBaseUrl: (map['sourceBaseUrl'] as String?) ?? '',
       id: map['id'] as int,
       title: (map['title'] as String?) ?? 'Untitled',
       excerpt: (map['excerpt'] as String?) ?? '',
@@ -106,26 +113,37 @@ class WpPost {
       date: DateTime.tryParse((map['date'] as String?) ?? '') ?? DateTime.now(),
       featuredImageUrl: map['featuredImageUrl'] as String?,
       categories: ((map['categories'] as List<dynamic>?) ?? []).cast<String>(),
+      categoryIds: ((map['categoryIds'] as List<dynamic>?) ?? const [])
+          .map((item) => item as int)
+          .toList(),
       link: (map['link'] as String?) ?? '',
       readMinutes: (map['readMinutes'] as int?) ?? 1,
     );
   }
 
-  factory WpPost.fromJson(Map<String, dynamic> json) {
+  factory WpPost.fromJson(
+    Map<String, dynamic> json, {
+    required String sourceBaseUrl,
+  }) {
     final embedded = json['_embedded'] as Map<String, dynamic>?;
     final authorList = embedded?['author'] as List<dynamic>?;
     final mediaList = embedded?['wp:featuredmedia'] as List<dynamic>?;
     final termLists = embedded?['wp:term'] as List<dynamic>?;
 
     final categoryNames = <String>[];
+    final categoryIds = <int>[];
     if (termLists != null) {
       for (final termList in termLists) {
         if (termList is List) {
           for (final term in termList) {
             if (term is Map<String, dynamic> && term['taxonomy'] == 'category') {
               final name = term['name'] as String?;
+              final id = term['id'] as int?;
               if (name != null && name.isNotEmpty) {
                 categoryNames.add(name);
+              }
+              if (id != null) {
+                categoryIds.add(id);
               }
             }
           }
@@ -147,6 +165,7 @@ class WpPost {
     final readMinutes = estimateReadMinutesFromHtml(contentHtml);
 
     return WpPost(
+      sourceBaseUrl: sourceBaseUrl,
       id: json['id'] as int,
       title: title.isEmpty ? 'Untitled' : title,
       excerpt: excerpt,
@@ -155,6 +174,7 @@ class WpPost {
       date: DateTime.tryParse((json['date'] as String?) ?? '') ?? DateTime.now(),
       featuredImageUrl: featuredImageUrl,
       categories: categoryNames,
+      categoryIds: categoryIds,
       link: link,
       readMinutes: readMinutes,
     );

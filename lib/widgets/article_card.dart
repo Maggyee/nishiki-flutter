@@ -1,179 +1,120 @@
+﻿import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
 import '../models/wp_models.dart';
 import '../theme/app_theme.dart';
 
-/// ============================================================
-/// 文章卡片组件 — 两种样式
-/// 1. HeroArticleCard: 首篇精选大图卡片（带渐变叠加）
-/// 2. ArticleCard: 普通文章列表卡片（紧凑横排布局）
-/// ============================================================
-
-// ==================== Hero 精选卡片 ====================
-// 用于首页第一篇文章，大图 + 渐变叠层 + 白色文字
 class HeroArticleCard extends StatelessWidget {
-  const HeroArticleCard({
-    super.key,
-    required this.post,
-    required this.onTap,
-  });
+  const HeroArticleCard({super.key, required this.post, required this.onTap});
 
   final WpPost post;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTheme.spacingMd,
-        vertical: AppTheme.spacingSm,
-      ),
-      child: GestureDetector(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
         child: Container(
-          height: 280,
+          height: 276,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            borderRadius: BorderRadius.circular(24),
             boxShadow: AppTheme.elevatedShadow,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            borderRadius: BorderRadius.circular(24),
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // 背景图片 — 带模糊占位加载效果
                 if (post.featuredImageUrl != null)
                   CachedNetworkImage(
                     imageUrl: post.featuredImageUrl!,
                     fit: BoxFit.cover,
-                    memCacheWidth: 1200,
-                    memCacheHeight: 700,
-                    maxWidthDiskCache: 1600,
-                    fadeInDuration: const Duration(milliseconds: 120),
-                    // 加载中占位 — 品牌色背景 + 脉冲动画
-                    placeholder: (context, url) => Container(
-                      decoration: const BoxDecoration(
-                        gradient: AppTheme.heroGradient,
-                      ),
-                      child: const Center(
-                        child: CircularProgressIndicator(
-                          color: Colors.white38,
-                          strokeWidth: 2,
-                        ),
-                      ),
-                    ),
-                    // 加载失败时显示渐变背景
-                    errorWidget: (context, url, error) => Container(
-                      decoration: const BoxDecoration(
-                        gradient: AppTheme.heroGradient,
-                      ),
-                    ),
                   )
                 else
-                  // 无图片时的渐变背景
                   Container(
                     decoration: const BoxDecoration(
                       gradient: AppTheme.heroGradient,
                     ),
                   ),
-
-                // 渐变叠加层 — 让底部文字可读
                 Container(
                   decoration: const BoxDecoration(
-                    gradient: AppTheme.cardOverlayGradient,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x22000000), Color(0xD9000000)],
+                      stops: [0.15, 1.0],
+                    ),
                   ),
                 ),
-
-                // 文字内容层
                 Positioned(
-                  left: AppTheme.spacingLg,
-                  right: AppTheme.spacingLg,
-                  bottom: AppTheme.spacingLg,
+                  left: 20,
+                  right: 20,
+                  top: 18,
+                  child: Row(
+                    children: [
+                      if (post.categories.isNotEmpty)
+                        _MetaPill(
+                          label: post.categories.first,
+                          foreground: Colors.white,
+                          background: Colors.white.withValues(alpha: 0.16),
+                        ),
+                      const Spacer(),
+                      _MetaPill(
+                        label: '${post.readMinutes} 分钟',
+                        foreground: Colors.white,
+                        background: Colors.black.withValues(alpha: 0.24),
+                        icon: Icons.schedule_rounded,
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 20,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // 分类标签 — 半透明胶囊形
-                      if (post.categories.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryColor.withValues(alpha: 0.9),
-                            borderRadius:
-                                BorderRadius.circular(AppTheme.radiusSm),
-                          ),
-                          child: Text(
-                            post.categories.first.toUpperCase(),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 10),
-
-                      // 文章标题 — 大号粗体白色
                       Text(
                         post.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
+                            ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        post.excerpt.isEmpty ? '继续阅读这篇文章' : post.excerpt,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.82),
+                          height: 1.45,
                         ),
                       ),
-                      const SizedBox(height: 8),
-
-                      // 作者和阅读时间
-                      Row(
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
-                          // 作者头像占位
-                          CircleAvatar(
-                            radius: 12,
-                            backgroundColor: Colors.white24,
-                            child: Text(
-                              post.author.isNotEmpty
-                                  ? post.author[0].toUpperCase()
-                                  : '?',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                          _MetaPill(
+                            label: post.author,
+                            foreground: Colors.white,
+                            background: Colors.white.withValues(alpha: 0.14),
+                            icon: Icons.person_rounded,
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            post.author,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          // 圆点分隔符
-                          Container(
-                            width: 4,
-                            height: 4,
-                            decoration: const BoxDecoration(
-                              color: Colors.white38,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            '${post.readMinutes} 分钟阅读',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.white70,
-                            ),
+                          _MetaPill(
+                            label: _formatDate(post.date),
+                            foreground: Colors.white,
+                            background: Colors.white.withValues(alpha: 0.14),
+                            icon: Icons.calendar_today_rounded,
                           ),
                         ],
                       ),
@@ -189,180 +130,321 @@ class HeroArticleCard extends StatelessWidget {
   }
 }
 
-// ==================== 普通文章卡片 ====================
-// 紧凑的横排布局：左侧文字 + 右侧缩略图
 class ArticleCard extends StatelessWidget {
   const ArticleCard({
     super.key,
     required this.post,
     required this.onTap,
+    this.highlightKeyword,
   });
 
   final WpPost post;
   final VoidCallback onTap;
+  final String? highlightKeyword;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final showImage =
+        post.featuredImageUrl != null && post.featuredImageUrl!.isNotEmpty;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTheme.spacingMd,
-        vertical: AppTheme.spacingSm,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Material(
         color: isDark ? AppTheme.cardDark : AppTheme.cardLight,
-        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        borderRadius: BorderRadius.circular(20),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          child: Container(
-            padding: const EdgeInsets.all(AppTheme.spacingMd),
+          borderRadius: BorderRadius.circular(20),
+          child: Ink(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              // 只在浅色模式下添加柔和阴影
-              boxShadow: isDark ? null : AppTheme.softShadow,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isDark ? const Color(0xFF2B3442) : AppTheme.dividerColor,
+              ),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 左侧 — 文字内容区域（占比较大）
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 分类标签
-                      if (post.categories.isNotEmpty)
-                        Text(
-                          post.categories.first.toUpperCase(),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: AppTheme.primaryColor,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      if (post.categories.isNotEmpty)
-                        const SizedBox(height: 6),
-
-                      // 文章标题
-                      Text(
-                        post.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          height: 1.3,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-
-                      // 摘要
-                      Text(
-                        post.excerpt.isEmpty
-                            ? '暂无摘要'
-                            : post.excerpt,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      // 底部元信息行 — 作者 · 时间 · 阅读时长
-                      Row(
-                        children: [
-                          Text(
-                            post.author,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (post.categories.isNotEmpty)
+                              _MetaTag(label: post.categories.first),
+                            _CompactMeta(
+                              icon: Icons.schedule_rounded,
+                              label: '${post.readMinutes} 分钟',
                             ),
-                          ),
-                          _buildDot(),
-                          Text(
-                            _formatDate(post.date),
-                            style: theme.textTheme.labelMedium,
-                          ),
-                          _buildDot(),
-                          Text(
-                            '${post.readMinutes} 分钟',
-                            style: theme.textTheme.labelMedium,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                // 右侧 — 缩略图
-                if (post.featuredImageUrl != null) ...[
-                  const SizedBox(width: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                    child: CachedNetworkImage(
-                      imageUrl: post.featuredImageUrl!,
-                      width: 96,
-                      height: 96,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 192,
-                      memCacheHeight: 192,
-                      maxWidthDiskCache: 384,
-                      fadeInDuration: const Duration(milliseconds: 120),
-                      placeholder: (context, url) => Container(
-                        width: 96,
-                        height: 96,
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? AppTheme.surfaceDark
-                              : AppTheme.dividerColor,
-                          borderRadius:
-                              BorderRadius.circular(AppTheme.radiusMd),
+                          ],
                         ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        width: 96,
-                        height: 96,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryLight,
-                          borderRadius:
-                              BorderRadius.circular(AppTheme.radiusMd),
+                        const SizedBox(height: 12),
+                        _HighlightedText(
+                          text: post.title,
+                          keyword: highlightKeyword,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                height: 1.3,
+                              ),
                         ),
-                        child: const Icon(
-                          Icons.image_outlined,
-                          color: AppTheme.primaryColor,
+                        const SizedBox(height: 8),
+                        _HighlightedText(
+                          text: post.excerpt.isEmpty
+                              ? '暂无摘要，点击查看全文。'
+                              : post.excerpt,
+                          keyword: highlightKeyword,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodyMedium?.copyWith(height: 1.55),
+                          maxLines: 3,
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 8,
+                          children: [
+                            _CompactMeta(
+                              icon: Icons.person_outline_rounded,
+                              label: post.author,
+                            ),
+                            _CompactMeta(
+                              icon: Icons.calendar_today_outlined,
+                              label: _formatDate(post.date),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(width: 14),
+                  _ArticlePreview(
+                    imageUrl: post.featuredImageUrl,
+                    title: post.title,
+                    isDark: isDark,
+                    visible: showImage,
+                  ),
                 ],
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
 
-  /// 构建圆点分隔符
-  Widget _buildDot() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+class _ArticlePreview extends StatelessWidget {
+  const _ArticlePreview({
+    required this.imageUrl,
+    required this.title,
+    required this.isDark,
+    required this.visible,
+  });
+
+  final String? imageUrl;
+  final String title;
+  final bool isDark;
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: visible
+          ? CachedNetworkImage(
+              imageUrl: imageUrl!,
+              width: 104,
+              height: 112,
+              fit: BoxFit.cover,
+            )
+          : Container(
+              width: 104,
+              height: 112,
+              decoration: BoxDecoration(
+                gradient: AppTheme.heroGradient,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.bottomLeft,
+              padding: const EdgeInsets.all(12),
+              child: Icon(
+                Icons.auto_stories_rounded,
+                color: Colors.white.withValues(alpha: 0.92),
+              ),
+            ),
+    );
+
+    return AnimatedOpacity(
+      opacity: 1,
+      duration: const Duration(milliseconds: 160),
       child: Container(
-        width: 3,
-        height: 3,
-        decoration: const BoxDecoration(
-          color: AppTheme.lightText,
-          shape: BoxShape.circle,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: isDark ? null : AppTheme.softShadow,
+        ),
+        child: preview,
+      ),
+    );
+  }
+}
+
+class _MetaPill extends StatelessWidget {
+  const _MetaPill({
+    required this.label,
+    required this.foreground,
+    required this.background,
+    this.icon,
+  });
+
+  final String label;
+  final Color foreground;
+  final Color background;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: foreground),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaTag extends StatelessWidget {
+  const _MetaTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryLight,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: AppTheme.primaryDark,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
 }
 
-// ==================== 工具函数 ====================
+class _CompactMeta extends StatelessWidget {
+  const _CompactMeta({required this.icon, required this.label});
 
-/// 格式化日期为友好的短格式（如 "Feb 16"）
-String _formatDate(DateTime date) {
-  return '${date.month}月${date.day}日';
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color: Theme.of(context).textTheme.bodySmall?.color,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
 }
+
+class _HighlightedText extends StatelessWidget {
+  const _HighlightedText({
+    required this.text,
+    required this.keyword,
+    required this.style,
+    this.maxLines = 2,
+  });
+
+  final String text;
+  final String? keyword;
+  final TextStyle? style;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final term = keyword?.trim();
+    if (term == null || term.isEmpty) {
+      return Text(
+        text,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+
+    final lowerText = text.toLowerCase();
+    final lowerTerm = term.toLowerCase();
+    final matchIndex = lowerText.indexOf(lowerTerm);
+    if (matchIndex < 0) {
+      return Text(
+        text,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+
+    final endIndex = matchIndex + term.length;
+    return RichText(
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(
+        style: style,
+        children: [
+          TextSpan(text: text.substring(0, matchIndex)),
+          TextSpan(
+            text: text.substring(matchIndex, endIndex),
+            style: style?.copyWith(
+              color: AppTheme.primaryColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          TextSpan(text: text.substring(endIndex)),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatDate(DateTime date) => '${date.month}月${date.day}日';
