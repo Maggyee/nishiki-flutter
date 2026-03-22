@@ -33,6 +33,7 @@ class ArticleDetailImageAppBar extends StatelessWidget {
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: _CircleButton(
+          key: const ValueKey('article_detail.back_button'),
           icon: Icons.arrow_back_rounded,
           semanticLabel: '返回',
           onTap: onBack,
@@ -150,6 +151,7 @@ class ArticleDetailCleanAppBar extends StatelessWidget {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       leading: IconButton(
+        key: const ValueKey('article_detail.back_button'),
         tooltip: '返回',
         icon: Icon(
           Icons.arrow_back_rounded,
@@ -238,6 +240,7 @@ class ArticleDetailCategoryChips extends StatelessWidget {
 
 class _CircleButton extends StatelessWidget {
   const _CircleButton({
+    super.key,
     required this.icon,
     required this.semanticLabel,
     required this.onTap,

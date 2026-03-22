@@ -380,6 +380,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       bottomNavigationBar: TooltipVisibility(
         visible: false,
         child: NavigationBar(
+          key: const ValueKey('home.bottom_navigation'),
           selectedIndex: _tabIndex,
           onDestinationSelected: (value) {
             if (_tabIndex == value) return;
@@ -396,21 +397,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           },
           destinations: const [
             NavigationDestination(
+              key: ValueKey('home.nav.home'),
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home),
               label: '首页',
             ),
             NavigationDestination(
+              key: ValueKey('home.nav.search'),
               icon: Icon(Icons.search_outlined),
               selectedIcon: Icon(Icons.search),
               label: '搜索',
             ),
             NavigationDestination(
+              key: ValueKey('home.nav.saved'),
               icon: Icon(Icons.bookmark_outline),
               selectedIcon: Icon(Icons.bookmark),
               label: '收藏',
             ),
             NavigationDestination(
+              key: ValueKey('home.nav.profile'),
               icon: Icon(Icons.person_outline),
               selectedIcon: Icon(Icons.person),
               label: '我的',
@@ -522,11 +527,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: SearchBar(
+        key: const ValueKey('home.search.entry'),
         controller: _searchController,
         hintText: '搜索文章、话题或作者',
         leading: const Icon(Icons.search),
         trailing: [
           IconButton(
+            key: const ValueKey('home.search.submit'),
             tooltip: '开始搜索',
             onPressed: _search,
             icon: const Icon(Icons.arrow_forward),
@@ -861,6 +868,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // 空状态 — 精美引导页
     if (_savedPosts.isEmpty) {
       return Center(
+        key: const ValueKey('saved.empty_state'),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
@@ -902,6 +910,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 28),
               FilledButton.icon(
+                key: const ValueKey('saved.empty_state.cta'),
                 onPressed: () => _goToTab(0),
                 icon: const Icon(Icons.explore_outlined, size: 18),
                 label: const Text('去发现文章'),

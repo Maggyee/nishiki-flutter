@@ -131,8 +131,13 @@ class PostCacheService {
     }
 
     if (categoryId != null) {
-      whereParts.add("category_ids_json LIKE ?");
-      whereArgs.add('%$categoryId%');
+      whereParts.add('''EXISTS (
+        SELECT 1 FROM ${LocalDatabaseService.postCategoriesTable} pc
+        WHERE pc.source_base_url = ${LocalDatabaseService.postsTable}.source_base_url
+          AND pc.post_id = ${LocalDatabaseService.postsTable}.id
+          AND pc.category_id = ?
+      )''');
+      whereArgs.add(categoryId);
     }
 
     final rows = await db.query(
@@ -272,6 +277,24 @@ class PostCacheService {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+
+    await db.delete(
+      LocalDatabaseService.postCategoriesTable,
+      where: 'source_base_url = ? AND post_id = ?',
+      whereArgs: [post.sourceBaseUrl, post.id],
+    );
+
+    for (final categoryId in post.categoryIds) {
+      await db.insert(
+        LocalDatabaseService.postCategoriesTable,
+        {
+          'source_base_url': post.sourceBaseUrl,
+          'post_id': post.id,
+          'category_id': categoryId,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
   }
 
   WpPost _postFromRow(Map<String, Object?> row, {String? sourceBaseUrl}) {
