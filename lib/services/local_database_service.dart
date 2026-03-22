@@ -13,7 +13,7 @@ class LocalDatabaseService {
   factory LocalDatabaseService() => _instance;
 
   static const String databaseName = 'nishiki_local.db';
-  static const int databaseVersion = 5;
+  static const int databaseVersion = 6;
 
   static const String postsTable = 'posts';
   static const String categoriesTable = 'categories';
@@ -77,9 +77,9 @@ class LocalDatabaseService {
     await db.execute('PRAGMA temp_store = MEMORY');
   }
 
-  Future<void> _createTables(Database db) async {
+  Future<void> _createPostCacheTables(Database db) async {
     await db.execute('''
-      CREATE TABLE $postsTable (
+      CREATE TABLE IF NOT EXISTS $postsTable (
         source_base_url TEXT NOT NULL,
         id INTEGER NOT NULL,
         slug TEXT,
@@ -101,17 +101,17 @@ class LocalDatabaseService {
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_posts_source_published
+      CREATE INDEX IF NOT EXISTS idx_posts_source_published
       ON $postsTable(source_base_url, published_at DESC)
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_posts_source_modified
+      CREATE INDEX IF NOT EXISTS idx_posts_source_modified
       ON $postsTable(source_base_url, modified_at DESC)
     ''');
 
     await db.execute('''
-      CREATE TABLE $categoriesTable (
+      CREATE TABLE IF NOT EXISTS $categoriesTable (
         id INTEGER NOT NULL,
         source_base_url TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -123,18 +123,27 @@ class LocalDatabaseService {
     ''');
 
     await db.execute('''
-      CREATE INDEX idx_categories_source_count
+      CREATE INDEX IF NOT EXISTS idx_categories_source_count
       ON $categoriesTable(source_base_url, count DESC)
     ''');
 
     await db.execute('''
-      CREATE TABLE $postCategoriesTable (
+      CREATE TABLE IF NOT EXISTS $postCategoriesTable (
         source_base_url TEXT NOT NULL,
         post_id INTEGER NOT NULL,
         category_id INTEGER NOT NULL,
         PRIMARY KEY (source_base_url, post_id, category_id)
       )
     ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_post_categories_lookup
+      ON $postCategoriesTable(source_base_url, category_id, post_id)
+    ''');
+  }
+
+  Future<void> _createTables(Database db) async {
+    await _createPostCacheTables(db);
 
     await db.execute('''
       CREATE TABLE $savedPostsTable (
@@ -222,6 +231,9 @@ class LocalDatabaseService {
     }
     if (oldVersion < 5) {
       await _createSourceManagementTables(db);
+    }
+    if (oldVersion < 6) {
+      await _createPostCacheTables(db);
     }
   }
 

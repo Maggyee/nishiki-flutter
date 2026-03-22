@@ -39,7 +39,7 @@ void main() {
   testWidgets('app boots with shell UI', (WidgetTester tester) async {
     await _pumpAppShell(tester);
 
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byKey(const ValueKey('home.bottom_navigation')), findsOneWidget);
     expect(find.byType(NavigationDestination), findsNWidgets(4));
   });
 
@@ -48,11 +48,11 @@ void main() {
   ) async {
     await _pumpAppShell(tester);
 
-    await tester.tap(find.byIcon(Icons.search_outlined));
+    await tester.tap(find.byKey(const ValueKey('home.nav.search')));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.byType(SearchBar), findsOneWidget);
-    expect(find.byIcon(Icons.arrow_forward), findsOneWidget);
+    expect(find.byKey(const ValueKey('home.search.entry')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home.search.submit')), findsOneWidget);
   });
 
   testWidgets('Saved empty state can navigate back to Home', (
@@ -60,16 +60,16 @@ void main() {
   ) async {
     await _pumpAppShell(tester);
 
-    await tester.tap(find.byIcon(Icons.bookmark_outline));
+    await tester.tap(find.byKey(const ValueKey('home.nav.saved')));
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.byIcon(Icons.bookmark_outline_rounded), findsOneWidget);
-    expect(find.byType(FilledButton), findsWidgets);
+    expect(find.byKey(const ValueKey('saved.empty_state')), findsOneWidget);
+    expect(find.byKey(const ValueKey('saved.empty_state.cta')), findsOneWidget);
 
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.byKey(const ValueKey('saved.empty_state.cta')));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byKey(const ValueKey('home.bottom_navigation')), findsOneWidget);
   });
 
   testWidgets('Profile tab renders site-management entry', (
@@ -77,7 +77,7 @@ void main() {
   ) async {
     await _pumpAppShell(tester);
 
-    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.tap(find.byKey(const ValueKey('home.nav.profile')));
     await tester.pump(const Duration(milliseconds: 900));
 
     expect(find.byIcon(Icons.hub_rounded), findsWidgets);
@@ -116,7 +116,9 @@ void main() {
 
     expect(find.byType(ArticleDetailScreen), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Back').first);
+    await tester.tap(
+      find.byKey(const ValueKey('article_detail.back_button')).first,
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(ArticleDetailScreen), findsNothing);
@@ -132,7 +134,10 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 200));
 
-    final bookmarkButton = find.byTooltip('Bookmark article');
+    final backButton = find.byKey(const ValueKey('article_detail.back_button'));
+    expect(backButton, findsOneWidget);
+
+    final bookmarkButton = find.byTooltip('收藏文章');
     expect(bookmarkButton, findsOneWidget);
 
     await tester.tap(bookmarkButton);
