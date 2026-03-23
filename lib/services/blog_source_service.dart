@@ -1,114 +1,38 @@
-import 'dart:convert';
+// 博客站点源管理服务 — 业务逻辑层（门面层）
+//
+// 三层架构：
+//   BlogSourceService（本层，业务逻辑 + 状态管理）
+//   → BlogSourceLocalDataSource（数据存储层，SQLite / SharedPreferences）
+//   → blog_source_models.dart（数据模型层）
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqflite/sqflite.dart';
 
 import '../config.dart';
+import '../data/blog_source_local_data_source.dart';
+import '../models/blog_source_models.dart';
+import '../models/sync_models.dart';
 import 'local_database_service.dart';
+import 'sync_service.dart';
 
-enum BlogSourceMode { single, aggregate }
-
-class BlogSiteSource {
-  const BlogSiteSource({
-    required this.baseUrl,
-    required this.name,
-    required this.createdAt,
-    required this.updatedAt,
-  });
-
-  final String baseUrl;
-  final String name;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-
-  String get hostLabel {
-    final host = Uri.tryParse(baseUrl)?.host;
-    if (host != null && host.isNotEmpty) {
-      return host.replaceFirst('www.', '');
-    }
-    return baseUrl.replaceFirst('https://', '').replaceFirst('http://', '');
-  }
-
-  Map<String, dynamic> toJson() => {
-    'baseUrl': baseUrl,
-    'name': name,
-    'createdAt': createdAt.toIso8601String(),
-    'updatedAt': updatedAt.toIso8601String(),
-  };
-
-  factory BlogSiteSource.fromJson(Map<String, dynamic> json) {
-    return BlogSiteSource(
-      baseUrl: (json['baseUrl'] as String?) ?? '',
-      name: (json['name'] as String?) ?? '',
-      createdAt:
-          DateTime.tryParse((json['createdAt'] as String?) ?? '') ??
-          DateTime.now(),
-      updatedAt:
-          DateTime.tryParse((json['updatedAt'] as String?) ?? '') ??
-          DateTime.now(),
-    );
-  }
-}
-
-class BlogSiteGroup {
-  const BlogSiteGroup({
-    required this.id,
-    required this.name,
-    required this.sourceBaseUrls,
-    required this.createdAt,
-    required this.updatedAt,
-  });
-
-  final String id;
-  final String name;
-  final List<String> sourceBaseUrls;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'sourceBaseUrls': sourceBaseUrls,
-    'createdAt': createdAt.toIso8601String(),
-    'updatedAt': updatedAt.toIso8601String(),
-  };
-
-  factory BlogSiteGroup.fromJson(Map<String, dynamic> json) {
-    return BlogSiteGroup(
-      id: (json['id'] as String?) ?? '',
-      name: (json['name'] as String?) ?? '',
-      sourceBaseUrls: ((json['sourceBaseUrls'] as List<dynamic>?) ?? const [])
-          .whereType<String>()
-          .toList(),
-      createdAt:
-          DateTime.tryParse((json['createdAt'] as String?) ?? '') ??
-          DateTime.now(),
-      updatedAt:
-          DateTime.tryParse((json['updatedAt'] as String?) ?? '') ??
-          DateTime.now(),
-    );
-  }
-}
+// 重新导出模型类，让现有 import 保持兼容
+export '../models/blog_source_models.dart';
 
 class BlogSourceService {
   BlogSourceService._internal();
 
-  static final BlogSourceService _instance = BlogSourceService._internal();
+  static BlogSourceService? _instance;
 
-  factory BlogSourceService() => _instance;
+  /// 单例工厂构造函数
+  factory BlogSourceService() => _instance ??= BlogSourceService._internal();
 
-  static const String _legacyWordpressBaseUrlKey = 'wordpress_base_url';
-  static const String _selectedWordpressSourceKey = 'selected_wordpress_source';
-  static const String _wordpressSourceModeKey = 'wordpress_source_mode';
-  static const String _selectedWordpressGroupKey = 'selected_wordpress_group';
-  static const String _legacyWordpressSourcesKey = 'wordpress_sources';
-  static const String _fallbackWordpressSourceEntriesKey =
-      'wordpress_source_entries_v2';
-  static const String _fallbackWordpressGroupsKey = 'wordpress_groups_v2';
-
+  // ===== 依赖注入 =====
   final LocalDatabaseService _databaseService = LocalDatabaseService();
+  late final BlogSourceLocalDataSource _dataSource =
+      BlogSourceLocalDataSource(databaseService: _databaseService);
+  SyncService get _syncService => SyncService();
 
+  // ===== 响应式状态 =====
   final ValueNotifier<String> baseUrl = ValueNotifier(
     AppConfig.wordpressBaseUrl.trim(),
   );
@@ -126,18 +50,17 @@ class BlogSourceService {
 
   bool _initialized = false;
 
-  bool get _useSqlite => _databaseService.isSupported;
+  // ==================== 初始化 ====================
 
+  /// 初始化服务：加载持久化数据，恢复用户选择状态
   Future<void> init() async {
-    if (_initialized) {
-      return;
-    }
+    if (_initialized) return;
 
     final prefs = await SharedPreferences.getInstance();
-    if (_useSqlite) {
+    if (_dataSource.useSqlite) {
       await _databaseService.init();
-      await _migrateLegacyPrefsToSqliteIfNeeded(prefs);
-      await _loadFromDatabase();
+      await _dataSource.migrateLegacyPrefsToSqliteIfNeeded(prefs);
+      await _reloadFromDatabase();
     } else {
       await _loadFallbackFromPrefs(prefs);
     }
@@ -147,6 +70,18 @@ class BlogSourceService {
     _initialized = true;
   }
 
+  /// 强制重新加载
+  Future<void> reload() async {
+    _initialized = false;
+    await init();
+  }
+
+  // ==================== 查询接口 ====================
+
+  /// 当前模式是否为聚合模式
+  bool get isAggregate => mode.value == BlogSourceMode.aggregate;
+
+  /// 当前生效的站点列表（单站点模式只返回 1 个，聚合模式返回组合中的站点）
   List<String> get activeSources {
     if (mode.value != BlogSourceMode.aggregate) {
       return <String>[baseUrl.value];
@@ -162,37 +97,34 @@ class BlogSourceService {
     );
   }
 
+  /// 当前选中的站点 URL
   String get currentSource => baseUrl.value;
 
+  /// 当前选中的组合（聚合模式下）
   BlogSiteGroup? get activeGroup {
     final id = selectedGroupId.value;
-    if (id == null || id.isEmpty) {
-      return null;
-    }
+    if (id == null || id.isEmpty) return null;
     for (final group in groups.value) {
-      if (group.id == id) {
-        return group;
-      }
+      if (group.id == id) return group;
     }
     return null;
   }
 
+  /// 当前站点的条目信息
   BlogSiteSource? get currentSourceEntry {
     for (final source in sourceEntries.value) {
-      if (source.baseUrl == baseUrl.value) {
-        return source;
-      }
+      if (source.baseUrl == baseUrl.value) return source;
     }
     return null;
   }
 
+  /// 当前站点的显示名称
   String get currentSourceLabel =>
-      currentSourceEntry?.name ?? _defaultSourceName(baseUrl.value);
+      currentSourceEntry?.name ?? _dataSource.defaultSourceName(baseUrl.value);
 
+  /// 当前作用域的描述标签
   String get currentScopeLabel {
-    if (mode.value == BlogSourceMode.single) {
-      return currentSourceLabel;
-    }
+    if (mode.value == BlogSourceMode.single) return currentSourceLabel;
 
     final group = activeGroup;
     if (group != null) {
@@ -202,15 +134,17 @@ class BlogSourceService {
     return '全部站点聚合 · ${sourceEntries.value.length} 个站点';
   }
 
+  /// 获取指定站点的显示名称
   String labelForSource(String sourceBaseUrl) {
     for (final source in sourceEntries.value) {
-      if (source.baseUrl == sourceBaseUrl) {
-        return source.name;
-      }
+      if (source.baseUrl == sourceBaseUrl) return source.name;
     }
-    return _defaultSourceName(sourceBaseUrl);
+    return _dataSource.defaultSourceName(sourceBaseUrl);
   }
 
+  // ==================== 站点管理操作 ====================
+
+  /// 设置当前使用的站点（切换到单站点模式）
   Future<void> setBaseUrl(String url, {String? name}) async {
     final normalized = _validatedUrl(url);
     await _upsertSource(normalized, name: name);
@@ -218,14 +152,18 @@ class BlogSourceService {
     mode.value = BlogSourceMode.single;
     selectedGroupId.value = null;
     await _persistSelectionState();
+    await _enqueuePreferenceChange();
   }
 
+  /// 添加新站点
   Future<void> addSource(String url, {String? name}) async {
     final normalized = _validatedUrl(url);
     await _upsertSource(normalized, name: name);
     await _persistSelectionState();
+    await _enqueueSourceChange(normalized);
   }
 
+  /// 重命名站点
   Future<void> renameSource(String url, String name) async {
     final normalized = _validatedUrl(url);
     final trimmedName = name.trim();
@@ -233,19 +171,11 @@ class BlogSourceService {
       throw const FormatException('请输入站点名称');
     }
 
-    if (_useSqlite) {
-      final db = await _databaseService.database;
-      if (db == null) {
-        return;
-      }
-      await db.update(
-        LocalDatabaseService.siteSourcesTable,
-        {'name': trimmedName, 'updated_at': DateTime.now().toIso8601String()},
-        where: 'base_url = ?',
-        whereArgs: [normalized],
-      );
-      await _loadFromDatabase();
+    if (_dataSource.useSqlite) {
+      await _dataSource.renameSourceInDb(normalized, trimmedName);
+      await _reloadFromDatabase();
     } else {
+      // 回退模式：在内存中更新
       final items = sourceEntries.value
           .map(
             (item) => item.baseUrl == normalized
@@ -262,25 +192,19 @@ class BlogSourceService {
       sources.value = items.map((item) => item.baseUrl).toList();
       await _persistFallbackCollections();
     }
+    await _enqueueSourceChange(normalized);
   }
 
+  /// 删除站点
   Future<void> removeSource(String url) async {
     final normalized = _validatedUrl(url);
     if (sourceEntries.value.length <= 1) {
       throw const FormatException('请至少保留一个站点');
     }
 
-    if (_useSqlite) {
-      final db = await _databaseService.database;
-      if (db == null) {
-        return;
-      }
-      await db.delete(
-        LocalDatabaseService.siteSourcesTable,
-        where: 'base_url = ?',
-        whereArgs: [normalized],
-      );
-      await _loadFromDatabase();
+    if (_dataSource.useSqlite) {
+      await _dataSource.deleteSourceInDb(normalized);
+      await _reloadFromDatabase();
     } else {
       sourceEntries.value = sourceEntries.value
           .where((item) => item.baseUrl != normalized)
@@ -303,23 +227,29 @@ class BlogSourceService {
       await _persistFallbackCollections();
     }
 
+    // 如果删除的是当前选中的站点，自动切换到第一个
     if (baseUrl.value == normalized) {
       baseUrl.value = sourceEntries.value.first.baseUrl;
     }
 
+    // 如果当前组合已无站点，取消组合选择
     final selectedGroup = activeGroup;
     if (selectedGroup != null && selectedGroup.sourceBaseUrls.isEmpty) {
       selectedGroupId.value = null;
     }
 
+    // 如果聚合模式下只剩 1 个站点，回退到单站点模式
     if (mode.value == BlogSourceMode.aggregate && activeSources.length <= 1) {
       mode.value = BlogSourceMode.single;
       selectedGroupId.value = null;
     }
 
     await _persistSelectionState();
+    await _enqueueSourceChange(normalized, deletedAt: DateTime.now());
+    await _enqueuePreferenceChange();
   }
 
+  /// 选择现有站点
   Future<void> selectSource(String url) async {
     final normalized = _validatedUrl(url);
     final knownSource = sourceEntries.value.any(
@@ -333,8 +263,10 @@ class BlogSourceService {
     mode.value = BlogSourceMode.single;
     selectedGroupId.value = null;
     await _persistSelectionState();
+    await _enqueuePreferenceChange();
   }
 
+  /// 切换数据源模式
   Future<void> setMode(BlogSourceMode nextMode) async {
     mode.value = nextMode;
     if (nextMode == BlogSourceMode.single) {
@@ -343,8 +275,12 @@ class BlogSourceService {
       mode.value = BlogSourceMode.single;
     }
     await _persistSelectionState();
+    await _enqueuePreferenceChange();
   }
 
+  // ==================== 组合管理操作 ====================
+
+  /// 选择组合
   Future<void> selectGroup(String? groupId) async {
     if (groupId != null && !groups.value.any((group) => group.id == groupId)) {
       throw const FormatException('站点组合不存在');
@@ -355,8 +291,10 @@ class BlogSourceService {
         ? BlogSourceMode.aggregate
         : BlogSourceMode.single;
     await _persistSelectionState();
+    await _enqueuePreferenceChange();
   }
 
+  /// 保存组合（新建或更新）
   Future<void> saveGroup({
     String? id,
     required String name,
@@ -378,67 +316,27 @@ class BlogSourceService {
     final groupId = (id == null || id.isEmpty)
         ? _createGroupId(trimmedName)
         : id;
-    final now = DateTime.now();
 
+    // 确保组合中的站点都存在
     for (final source in normalizedSources) {
       if (!sourceEntries.value.any((item) => item.baseUrl == source)) {
         await _upsertSource(source);
       }
     }
 
-    if (_useSqlite) {
-      final db = await _databaseService.database;
-      if (db == null) {
-        return;
-      }
-
-      await db.transaction((txn) async {
-        final existing = await txn.query(
-          LocalDatabaseService.siteGroupsTable,
-          columns: ['created_at'],
-          where: 'id = ?',
-          whereArgs: [groupId],
-          limit: 1,
-        );
-
-        await txn.insert(
-          LocalDatabaseService.siteGroupsTable,
-          {
-            'id': groupId,
-            'name': trimmedName,
-            'created_at': existing.isNotEmpty
-                ? existing.first['created_at'] as String
-                : now.toIso8601String(),
-            'updated_at': now.toIso8601String(),
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-
-        await txn.delete(
-          LocalDatabaseService.siteGroupMembersTable,
-          where: 'group_id = ?',
-          whereArgs: [groupId],
-        );
-
-        for (int index = 0; index < normalizedSources.length; index++) {
-          await txn.insert(
-            LocalDatabaseService.siteGroupMembersTable,
-            {
-              'group_id': groupId,
-              'source_base_url': normalizedSources[index],
-              'sort_order': index,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-      });
-
-      await _loadFromDatabase();
+    if (_dataSource.useSqlite) {
+      await _dataSource.saveGroupInDb(
+        groupId: groupId,
+        name: trimmedName,
+        sourceBaseUrls: normalizedSources,
+      );
+      await _reloadFromDatabase();
     } else {
       final nextGroups = [...groups.value];
       final existingIndex = nextGroups.indexWhere(
         (group) => group.id == groupId,
       );
+      final now = DateTime.now();
       final nextGroup = BlogSiteGroup(
         id: groupId,
         name: trimmedName,
@@ -461,20 +359,15 @@ class BlogSourceService {
     selectedGroupId.value = groupId;
     mode.value = BlogSourceMode.aggregate;
     await _persistSelectionState();
+    await _enqueueGroupChange(groupId);
+    await _enqueuePreferenceChange();
   }
 
+  /// 删除组合
   Future<void> deleteGroup(String id) async {
-    if (_useSqlite) {
-      final db = await _databaseService.database;
-      if (db == null) {
-        return;
-      }
-      await db.delete(
-        LocalDatabaseService.siteGroupsTable,
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      await _loadFromDatabase();
+    if (_dataSource.useSqlite) {
+      await _dataSource.deleteGroupInDb(id);
+      await _reloadFromDatabase();
     } else {
       groups.value = groups.value.where((group) => group.id != id).toList();
       await _persistFallbackCollections();
@@ -487,24 +380,23 @@ class BlogSourceService {
           : BlogSourceMode.single;
       await _persistSelectionState();
     }
+    await _enqueueGroupChange(id, deletedAt: DateTime.now());
+    await _enqueuePreferenceChange();
   }
 
+  /// 重置所有数据到初始状态
   Future<void> reset() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_legacyWordpressBaseUrlKey);
-    await prefs.remove(_legacyWordpressSourcesKey);
-    await prefs.remove(_selectedWordpressSourceKey);
-    await prefs.remove(_wordpressSourceModeKey);
-    await prefs.remove(_selectedWordpressGroupKey);
-    await prefs.remove(_fallbackWordpressSourceEntriesKey);
-    await prefs.remove(_fallbackWordpressGroupsKey);
+    await _dataSource.clearAllPrefs(prefs);
 
     final defaultSource = _validatedUrl(AppConfig.wordpressBaseUrl.trim());
+    final defaultName = _dataSource.defaultSourceName(defaultSource);
     final now = DateTime.now();
+
     sourceEntries.value = <BlogSiteSource>[
       BlogSiteSource(
         baseUrl: defaultSource,
-        name: _defaultSourceName(defaultSource),
+        name: defaultName,
         createdAt: now,
         updatedAt: now,
       ),
@@ -515,250 +407,48 @@ class BlogSourceService {
     mode.value = BlogSourceMode.single;
     selectedGroupId.value = null;
 
-    if (_useSqlite) {
-      final db = await _databaseService.database;
-      if (db != null) {
-        await db.transaction((txn) async {
-          await txn.delete(LocalDatabaseService.siteGroupMembersTable);
-          await txn.delete(LocalDatabaseService.siteGroupsTable);
-          await txn.delete(LocalDatabaseService.siteSourcesTable);
-          await txn.insert(
-            LocalDatabaseService.siteSourcesTable,
-            {
-              'base_url': defaultSource,
-              'name': _defaultSourceName(defaultSource),
-              'created_at': now.toIso8601String(),
-              'updated_at': now.toIso8601String(),
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        });
-      }
+    if (_dataSource.useSqlite) {
+      await _dataSource.resetDatabase(defaultSource, defaultName);
     }
 
     await _persistSelectionState();
-    if (!_useSqlite) {
+    if (!_dataSource.useSqlite) {
       await _persistFallbackCollections();
     }
+    await _enqueuePreferenceChange();
   }
 
-  Future<void> _migrateLegacyPrefsToSqliteIfNeeded(
-    SharedPreferences prefs,
-  ) async {
-    final db = await _databaseService.database;
-    if (db == null) {
-      return;
-    }
+  // ==================== 内部方法 ====================
 
-    final existingRows = await db.query(
-      LocalDatabaseService.siteSourcesTable,
-      columns: ['base_url'],
-      limit: 1,
-    );
-    if (existingRows.isNotEmpty) {
-      return;
-    }
-
-    final now = DateTime.now();
-    final legacySources = _readLegacySourceUrls(prefs);
-    final fallbackSources = _readFallbackSourceEntries(prefs);
-
-    final seedSources = fallbackSources.isNotEmpty
-        ? fallbackSources
-        : legacySources
-              .map(
-                (url) => BlogSiteSource(
-                  baseUrl: url,
-                  name: _defaultSourceName(url),
-                  createdAt: now,
-                  updatedAt: now,
-                ),
-              )
-              .toList();
-
-    final sourcesToInsert = seedSources.isNotEmpty
-        ? seedSources
-        : <BlogSiteSource>[
-            BlogSiteSource(
-              baseUrl: _validatedUrl(AppConfig.wordpressBaseUrl.trim()),
-              name: _defaultSourceName(AppConfig.wordpressBaseUrl.trim()),
-              createdAt: now,
-              updatedAt: now,
-            ),
-          ];
-
-    final fallbackGroups = _readFallbackGroups(prefs);
-
-    await db.transaction((txn) async {
-      for (final source in sourcesToInsert) {
-        await txn.insert(
-          LocalDatabaseService.siteSourcesTable,
-          {
-            'base_url': source.baseUrl,
-            'name': source.name,
-            'created_at': source.createdAt.toIso8601String(),
-            'updated_at': source.updatedAt.toIso8601String(),
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      for (final group in fallbackGroups) {
-        await txn.insert(
-          LocalDatabaseService.siteGroupsTable,
-          {
-            'id': group.id,
-            'name': group.name,
-            'created_at': group.createdAt.toIso8601String(),
-            'updated_at': group.updatedAt.toIso8601String(),
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-
-        for (int index = 0; index < group.sourceBaseUrls.length; index++) {
-          await txn.insert(
-            LocalDatabaseService.siteGroupMembersTable,
-            {
-              'group_id': group.id,
-              'source_base_url': group.sourceBaseUrls[index],
-              'sort_order': index,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-      }
-    });
+  /// 从 SQLite 重新加载数据到内存
+  Future<void> _reloadFromDatabase() async {
+    final result = await _dataSource.loadFromDatabase();
+    sourceEntries.value = result.sources;
+    groups.value = result.groups;
+    sources.value = result.sources.map((item) => item.baseUrl).toList();
   }
 
-  Future<void> _loadFromDatabase() async {
-    final db = await _databaseService.database;
-    if (db == null) {
-      return;
-    }
-
-    final sourceRows = await db.query(
-      LocalDatabaseService.siteSourcesTable,
-      orderBy: 'name COLLATE NOCASE ASC',
-    );
-    final groupRows = await db.query(
-      LocalDatabaseService.siteGroupsTable,
-      orderBy: 'name COLLATE NOCASE ASC',
-    );
-    final memberRows = await db.query(
-      LocalDatabaseService.siteGroupMembersTable,
-      orderBy: 'group_id ASC, sort_order ASC',
-    );
-
-    final loadedSources = sourceRows
-        .map(
-          (row) => BlogSiteSource(
-            baseUrl: row['base_url'] as String,
-            name:
-                (row['name'] as String?) ??
-                _defaultSourceName(row['base_url'] as String),
-            createdAt:
-                DateTime.tryParse((row['created_at'] as String?) ?? '') ??
-                DateTime.now(),
-            updatedAt:
-                DateTime.tryParse((row['updated_at'] as String?) ?? '') ??
-                DateTime.now(),
-          ),
-        )
-        .toList();
-
-    final membersByGroup = <String, List<String>>{};
-    for (final row in memberRows) {
-      final groupId = row['group_id'] as String?;
-      final sourceBaseUrl = row['source_base_url'] as String?;
-      if (groupId == null || sourceBaseUrl == null) {
-        continue;
-      }
-      membersByGroup.putIfAbsent(groupId, () => <String>[]).add(sourceBaseUrl);
-    }
-
-    final loadedGroups = groupRows
-        .map(
-          (row) => BlogSiteGroup(
-            id: row['id'] as String,
-            name: (row['name'] as String?) ?? '未命名组合',
-            sourceBaseUrls: List.unmodifiable(
-              membersByGroup[row['id'] as String] ?? const [],
-            ),
-            createdAt:
-                DateTime.tryParse((row['created_at'] as String?) ?? '') ??
-                DateTime.now(),
-            updatedAt:
-                DateTime.tryParse((row['updated_at'] as String?) ?? '') ??
-                DateTime.now(),
-          ),
-        )
-        .where((group) => group.sourceBaseUrls.isNotEmpty)
-        .toList();
-
-    sourceEntries.value = loadedSources;
-    groups.value = loadedGroups;
-    sources.value = loadedSources.map((item) => item.baseUrl).toList();
-  }
-
+  /// 从 SharedPreferences 加载回退数据
   Future<void> _loadFallbackFromPrefs(SharedPreferences prefs) async {
-    final fallbackSources = _readFallbackSourceEntries(prefs);
-    final fallbackGroups = _readFallbackGroups(prefs);
-    final legacySources = _readLegacySourceUrls(prefs);
-    final now = DateTime.now();
-
-    final loadedSources = fallbackSources.isNotEmpty
-        ? fallbackSources
-        : legacySources
-              .map(
-                (url) => BlogSiteSource(
-                  baseUrl: url,
-                  name: _defaultSourceName(url),
-                  createdAt: now,
-                  updatedAt: now,
-                ),
-              )
-              .toList();
-
-    sourceEntries.value = loadedSources.isNotEmpty
-        ? loadedSources
-        : <BlogSiteSource>[
-            BlogSiteSource(
-              baseUrl: _validatedUrl(AppConfig.wordpressBaseUrl.trim()),
-              name: _defaultSourceName(AppConfig.wordpressBaseUrl.trim()),
-              createdAt: now,
-              updatedAt: now,
-            ),
-          ];
-    groups.value = fallbackGroups;
-    sources.value = sourceEntries.value.map((item) => item.baseUrl).toList();
+    final result = await _dataSource.loadFallbackFromPrefs(prefs);
+    sourceEntries.value = result.sources;
+    groups.value = result.groups;
+    sources.value = result.sources.map((item) => item.baseUrl).toList();
   }
 
+  /// 恢复用户上次的选择状态
   Future<void> _restoreSelectionState(SharedPreferences prefs) async {
-    final initialSources = sources.value;
-    final fallbackSource = initialSources.isNotEmpty
-        ? initialSources.first
-        : _validatedUrl(AppConfig.wordpressBaseUrl.trim());
-
-    final selectedSource =
-        _normalizeIfValid(prefs.getString(_selectedWordpressSourceKey)) ??
-        _normalizeIfValid(prefs.getString(_legacyWordpressBaseUrlKey)) ??
-        fallbackSource;
-
-    final storedMode = prefs.getString(_wordpressSourceModeKey);
-    final selectedGroup = prefs.getString(_selectedWordpressGroupKey);
-
-    baseUrl.value = initialSources.contains(selectedSource)
-        ? selectedSource
-        : fallbackSource;
-    selectedGroupId.value =
-        groups.value.any((group) => group.id == selectedGroup)
-        ? selectedGroup
-        : null;
-    mode.value = storedMode == 'aggregate'
-        ? BlogSourceMode.aggregate
-        : BlogSourceMode.single;
+    final state = _dataSource.restoreSelectionState(
+      prefs,
+      knownSources: sources.value,
+      knownGroups: groups.value,
+    );
+    baseUrl.value = state.baseUrl;
+    mode.value = state.mode;
+    selectedGroupId.value = state.groupId;
   }
 
+  /// 确保至少有一个站点配置
   Future<void> _ensureMinimumConfig(SharedPreferences prefs) async {
     if (sourceEntries.value.isEmpty) {
       await _upsertSource(_validatedUrl(AppConfig.wordpressBaseUrl.trim()));
@@ -780,57 +470,29 @@ class BlogSourceService {
     }
 
     await _persistSelectionState(prefs);
-    if (!_useSqlite) {
+    if (!_dataSource.useSqlite) {
       await _persistFallbackCollections(prefs);
     }
   }
 
+  /// 插入或更新站点
   Future<void> _upsertSource(String baseUrl, {String? name}) async {
-    final normalized = _validatedUrl(baseUrl);
     final effectiveName = (name?.trim().isNotEmpty ?? false)
         ? name!.trim()
-        : _defaultSourceName(normalized);
-    final now = DateTime.now();
+        : _dataSource.defaultSourceName(baseUrl);
 
-    if (_useSqlite) {
-      final db = await _databaseService.database;
-      if (db == null) {
-        return;
-      }
-
-      final existing = await db.query(
-        LocalDatabaseService.siteSourcesTable,
-        columns: ['created_at', 'name'],
-        where: 'base_url = ?',
-        whereArgs: [normalized],
-        limit: 1,
-      );
-
-      await db.insert(
-        LocalDatabaseService.siteSourcesTable,
-        {
-          'base_url': normalized,
-          'name': existing.isNotEmpty
-              ? ((existing.first['name'] as String?)?.trim().isNotEmpty ??
-                        false)
-                    ? existing.first['name']
-                    : effectiveName
-              : effectiveName,
-          'created_at': existing.isNotEmpty
-              ? existing.first['created_at'] as String
-              : now.toIso8601String(),
-          'updated_at': now.toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      await _loadFromDatabase();
+    if (_dataSource.useSqlite) {
+      await _dataSource.upsertSourceInDb(baseUrl, effectiveName);
+      await _reloadFromDatabase();
       return;
     }
 
+    // 回退模式：内存中操作
     final nextSources = [...sourceEntries.value];
     final existingIndex = nextSources.indexWhere(
-      (item) => item.baseUrl == normalized,
+      (item) => item.baseUrl == baseUrl,
     );
+    final now = DateTime.now();
     if (existingIndex >= 0) {
       final existing = nextSources[existingIndex];
       nextSources[existingIndex] = BlogSiteSource(
@@ -842,7 +504,7 @@ class BlogSourceService {
     } else {
       nextSources.add(
         BlogSiteSource(
-          baseUrl: normalized,
+          baseUrl: baseUrl,
           name: effectiveName,
           createdAt: now,
           updatedAt: now,
@@ -857,101 +519,28 @@ class BlogSourceService {
     await _persistFallbackCollections();
   }
 
+  /// 持久化选择状态
   Future<void> _persistSelectionState([SharedPreferences? prefs]) async {
     final resolvedPrefs = prefs ?? await SharedPreferences.getInstance();
-    await resolvedPrefs.setString(_selectedWordpressSourceKey, baseUrl.value);
-    await resolvedPrefs.setString(_legacyWordpressBaseUrlKey, baseUrl.value);
-    await resolvedPrefs.setString(
-      _wordpressSourceModeKey,
-      mode.value == BlogSourceMode.aggregate ? 'aggregate' : 'single',
+    await _dataSource.persistSelectionState(
+      resolvedPrefs,
+      baseUrl: baseUrl.value,
+      mode: mode.value,
+      groupId: selectedGroupId.value,
     );
-
-    final groupId = selectedGroupId.value;
-    if (groupId == null || groupId.isEmpty) {
-      await resolvedPrefs.remove(_selectedWordpressGroupKey);
-    } else {
-      await resolvedPrefs.setString(_selectedWordpressGroupKey, groupId);
-    }
   }
 
+  /// 持久化回退集合
   Future<void> _persistFallbackCollections([SharedPreferences? prefs]) async {
     final resolvedPrefs = prefs ?? await SharedPreferences.getInstance();
-    await resolvedPrefs.setString(
-      _fallbackWordpressSourceEntriesKey,
-      json.encode(sourceEntries.value.map((item) => item.toJson()).toList()),
-    );
-    await resolvedPrefs.setString(
-      _fallbackWordpressGroupsKey,
-      json.encode(groups.value.map((item) => item.toJson()).toList()),
-    );
-    await resolvedPrefs.setString(
-      _legacyWordpressSourcesKey,
-      json.encode(sourceEntries.value.map((item) => item.baseUrl).toList()),
+    await _dataSource.persistFallbackCollections(
+      resolvedPrefs,
+      sources: sourceEntries.value,
+      groups: groups.value,
     );
   }
 
-  List<String> _readLegacySourceUrls(SharedPreferences prefs) {
-    final raw = prefs.getString(_legacyWordpressSourcesKey);
-    if (raw == null || raw.isEmpty) {
-      final legacySingle = _normalizeIfValid(
-        prefs.getString(_legacyWordpressBaseUrlKey),
-      );
-      return legacySingle == null
-          ? <String>[_validatedUrl(AppConfig.wordpressBaseUrl.trim())]
-          : <String>[legacySingle];
-    }
-
-    try {
-      final decoded = json.decode(raw) as List<dynamic>;
-      final items = decoded
-          .whereType<String>()
-          .map(_normalizeIfValid)
-          .whereType<String>()
-          .toSet()
-          .toList();
-      if (items.isNotEmpty) {
-        return items;
-      }
-    } catch (_) {}
-
-    return <String>[_validatedUrl(AppConfig.wordpressBaseUrl.trim())];
-  }
-
-  List<BlogSiteSource> _readFallbackSourceEntries(SharedPreferences prefs) {
-    final raw = prefs.getString(_fallbackWordpressSourceEntriesKey);
-    if (raw == null || raw.isEmpty) {
-      return const <BlogSiteSource>[];
-    }
-
-    try {
-      final decoded = json.decode(raw) as List<dynamic>;
-      return decoded
-          .whereType<Map<String, dynamic>>()
-          .map(BlogSiteSource.fromJson)
-          .where((item) => item.baseUrl.isNotEmpty)
-          .toList();
-    } catch (_) {
-      return const <BlogSiteSource>[];
-    }
-  }
-
-  List<BlogSiteGroup> _readFallbackGroups(SharedPreferences prefs) {
-    final raw = prefs.getString(_fallbackWordpressGroupsKey);
-    if (raw == null || raw.isEmpty) {
-      return const <BlogSiteGroup>[];
-    }
-
-    try {
-      final decoded = json.decode(raw) as List<dynamic>;
-      return decoded
-          .whereType<Map<String, dynamic>>()
-          .map(BlogSiteGroup.fromJson)
-          .where((item) => item.id.isNotEmpty && item.sourceBaseUrls.isNotEmpty)
-          .toList();
-    } catch (_) {
-      return const <BlogSiteGroup>[];
-    }
-  }
+  // ==================== URL 校验 ====================
 
   String _validatedUrl(String value) {
     final normalized = _normalizeIfValid(value);
@@ -962,15 +551,10 @@ class BlogSourceService {
   }
 
   String? _normalizeIfValid(String? value) {
-    if (value == null) {
-      return null;
-    }
-
+    if (value == null) return null;
     final trimmed = value.trim();
-    if (!_isValidUrl(trimmed)) {
-      return null;
-    }
-    return _normalizeUrl(trimmed);
+    if (!_isValidUrl(trimmed)) return null;
+    return _dataSource.normalizeUrl(trimmed);
   }
 
   bool _isValidUrl(String value) {
@@ -982,21 +566,6 @@ class BlogSourceService {
             value.startsWith('http://localhost'));
   }
 
-  String _normalizeUrl(String value) {
-    if (value.endsWith('/')) {
-      return value.substring(0, value.length - 1);
-    }
-    return value;
-  }
-
-  String _defaultSourceName(String url) {
-    final host = Uri.tryParse(url)?.host;
-    if (host == null || host.isEmpty) {
-      return url;
-    }
-    return host.replaceFirst('www.', '');
-  }
-
   String _createGroupId(String name) {
     final normalized = name
         .trim()
@@ -1005,5 +574,81 @@ class BlogSourceService {
         .replaceAll(RegExp(r'^-+|-+$'), '');
     final seed = normalized.isEmpty ? 'group' : normalized;
     return '$seed-${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  // ==================== 同步队列 ====================
+
+  Future<void> _enqueueSourceChange(
+    String sourceBaseUrl, {
+    DateTime? deletedAt,
+  }) async {
+    final source = _findSource(sourceBaseUrl);
+    await _syncService.enqueueChange(
+      SyncChange(
+        entityType: 'source',
+        entityId: sourceBaseUrl,
+        data: {
+          'id': sourceBaseUrl,
+          'baseUrl': sourceBaseUrl,
+          'name': source?.name ?? _dataSource.defaultSourceName(sourceBaseUrl),
+          'createdAt':
+              source?.createdAt.toIso8601String() ??
+              DateTime.now().toIso8601String(),
+          'updatedAt': DateTime.now().toIso8601String(),
+          if (deletedAt != null) 'deletedAt': deletedAt.toIso8601String(),
+        },
+      ),
+    );
+  }
+
+  Future<void> _enqueueGroupChange(
+    String groupId, {
+    DateTime? deletedAt,
+  }) async {
+    final group = _findGroup(groupId);
+    await _syncService.enqueueChange(
+      SyncChange(
+        entityType: 'source_group',
+        entityId: groupId,
+        data: {
+          'id': groupId,
+          'name': group?.name ?? 'Untitled group',
+          'sourceIds': group?.sourceBaseUrls ?? const <String>[],
+          'createdAt':
+              group?.createdAt.toIso8601String() ??
+              DateTime.now().toIso8601String(),
+          'updatedAt': DateTime.now().toIso8601String(),
+          if (deletedAt != null) 'deletedAt': deletedAt.toIso8601String(),
+        },
+      ),
+    );
+  }
+
+  Future<void> _enqueuePreferenceChange() async {
+    await _syncService.enqueueChange(
+      SyncChange(
+        entityType: 'preference',
+        data: {
+          'selectedSourceBaseUrl': baseUrl.value,
+          'sourceMode': mode.value.name,
+          'selectedGroupId': selectedGroupId.value,
+          'updatedAt': DateTime.now().toIso8601String(),
+        },
+      ),
+    );
+  }
+
+  BlogSiteSource? _findSource(String sourceBaseUrl) {
+    for (final source in sourceEntries.value) {
+      if (source.baseUrl == sourceBaseUrl) return source;
+    }
+    return null;
+  }
+
+  BlogSiteGroup? _findGroup(String groupId) {
+    for (final group in groups.value) {
+      if (group.id == groupId) return group;
+    }
+    return null;
   }
 }

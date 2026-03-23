@@ -9,11 +9,12 @@ import '../services/ai_service.dart';
 import '../theme/app_theme.dart';
 import 'ai_chat_bubble.dart';
 import 'ai_markdown_text.dart';
+import 'ai_companion_widgets.dart' show AiThinkingAnimation;
 
 /// ============================================================
 /// AI 伴读面板 — 底部抽屉式交互面板
 /// 功能：一键总结 + 文章问答对话
-/// 设计：DraggableScrollableSheet + 毛玻璃效果
+/// 设计：底部弹出式面板 + 渐变动画
 /// ============================================================
 class AiCompanionPanel extends StatefulWidget {
   const AiCompanionPanel({
@@ -81,6 +82,7 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
     super.dispose();
   }
 
+  /// 从缓存恢复摘要和对话历史
   Future<void> _restorePersistedState() async {
     final cachedSummary = await _aiService.getStoredSummary(
       widget.post.id,
@@ -91,9 +93,7 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
       sourceBaseUrl: widget.post.sourceBaseUrl,
     );
 
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     setState(() {
       _summary = cachedSummary;
@@ -144,7 +144,6 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
     final text = preset ?? _inputController.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    // 触觉反馈
     HapticFeedback.lightImpact();
 
     // 清空输入框
@@ -171,11 +170,9 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
       _isSending = true;
     });
 
-    // 滚动到底部
     _scrollToBottom();
 
     try {
-      // 获取流式响应
       final stream = _aiService.chatWithArticle(
         post: widget.post,
         userMessage: text,
@@ -309,20 +306,16 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
           children: [
             // ——— 顶部拖拽手柄 + 标题 ———
             _buildHeader(isDark),
-
             // ——— Tab 切换栏 ———
             _buildTabBar(isDark),
-
             // ——— 内容区域 ———
             Flexible(
               child: _currentTab == 0
                   ? _buildSummaryView(isDark)
                   : _buildChatView(isDark),
             ),
-
             // ——— 对话输入框（仅在对话 Tab 显示） ———
-            if (_currentTab == 1)
-              _buildInputBar(isDark, bottomPadding),
+            if (_currentTab == 1) _buildInputBar(isDark, bottomPadding),
           ],
         ),
       ),
@@ -368,7 +361,6 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
                 ),
               ),
               const SizedBox(width: 10),
-              // 标题文字
               Text(
                 'AI 伴读助手',
                 style: TextStyle(
@@ -378,7 +370,7 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
                 ),
               ),
               const Spacer(),
-              // 清空对话按钮（仅在对话 Tab 且有消息时显示）
+              // 清空对话按钮
               if (_currentTab == 1 && _messages.isNotEmpty)
                 IconButton(
                   tooltip: '清空对话',
@@ -535,8 +527,7 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // AI 思考中的动画
-            _AiThinkingAnimation(isDark: isDark),
+            AiThinkingAnimation(isDark: isDark),
             const SizedBox(height: 16),
             Text(
               'AI 正在阅读文章...',
@@ -601,173 +592,172 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-            // 核心摘要
-            if (_summary!.summary.isNotEmpty) ...[
-              _buildSectionTitle('核心摘要', isDark),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppTheme.primaryColor.withValues(alpha: 0.08)
-                      : AppTheme.primaryLight.withValues(alpha: 0.72),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: AiMarkdownText(
-                  _summary!.summary,
-                  isDark: isDark,
-                  baseStyle: TextStyle(
-                    fontSize: 14,
-                    height: 1.6,
-                    color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
-                  ),
-                ),
-              ),
-            ],
-
-            // 关键要点
-            if (_summary!.keyPoints.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _buildSectionTitle('关键要点', isDark),
-              const SizedBox(height: 8),
-              ...List.generate(_summary!.keyPoints.length, (i) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 序号标记
-                      Container(
-                        width: 22,
-                        height: 22,
-                        margin: const EdgeInsets.only(top: 2),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '${i + 1}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.primaryColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: AiMarkdownText(
-                          _summary!.keyPoints[i],
-                          isDark: isDark,
-                          baseStyle: TextStyle(
-                            fontSize: 14,
-                            height: 1.5,
-                            color: isDark
-                                ? AppTheme.darkModeText
-                                : AppTheme.darkText,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-
-            // 关键词标签
-            if (_summary!.keywords.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _buildSectionTitle('关键词', isDark),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _summary!.keywords.map((kw) {
-                  return Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                // 核心摘要
+                if (_summary!.summary.isNotEmpty) ...[
+                  _buildSectionTitle('核心摘要', isDark),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: isDark
-                          ? AppTheme.surfaceDark
-                          : const Color(0xFFF0F4F8),
-                      borderRadius: BorderRadius.circular(8),
+                          ? AppTheme.primaryColor.withValues(alpha: 0.08)
+                          : AppTheme.primaryLight.withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Text(
-                      '#$kw',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.primaryColor,
+                    child: AiMarkdownText(
+                      _summary!.summary,
+                      isDark: isDark,
+                      baseStyle: TextStyle(
+                        fontSize: 14,
+                        height: 1.6,
+                        color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
                       ),
                     ),
-                  );
-                }).toList(),
-              ),
-            ],
+                  ),
+                ],
 
-            // 快捷提问区域 — 引导用户进入对话
-            const SizedBox(height: 20),
-            Text(
-              '想深入了解？试试这些问题',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: isDark
-                    ? AppTheme.darkModeSecondary
-                    : AppTheme.lightText,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                AiQuickAction(
-                  label: '解释核心概念',
-                  icon: Icons.lightbulb_outline,
-                  onTap: () {
-                    setState(() => _currentTab = 1);
-                    _sendMessage('请帮我解释这篇文章中的核心概念');
-                  },
-                ),
-                AiQuickAction(
-                  label: '实际应用场景',
-                  icon: Icons.cases_outlined,
-                  onTap: () {
-                    setState(() => _currentTab = 1);
-                    _sendMessage('这篇文章的内容有哪些实际应用场景？');
-                  },
-                ),
-                AiQuickAction(
-                  label: '延伸阅读建议',
-                  icon: Icons.menu_book_outlined,
-                  onTap: () {
-                    setState(() => _currentTab = 1);
-                    _sendMessage('读完这篇文章后，你有什么延伸阅读的建议吗？');
-                  },
-                ),
-              ],
-            ),
+                // 关键要点
+                if (_summary!.keyPoints.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _buildSectionTitle('关键要点', isDark),
+                  const SizedBox(height: 8),
+                  ...List.generate(_summary!.keyPoints.length, (i) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            margin: const EdgeInsets.only(top: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${i + 1}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.primaryColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: AiMarkdownText(
+                              _summary!.keyPoints[i],
+                              isDark: isDark,
+                              baseStyle: TextStyle(
+                                fontSize: 14,
+                                height: 1.5,
+                                color: isDark
+                                    ? AppTheme.darkModeText
+                                    : AppTheme.darkText,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
 
-            // 重新生成按钮
-            const SizedBox(height: 16),
-            Center(
-              child: TextButton.icon(
-                onPressed: _generateSummary,
-                icon: const Icon(Icons.refresh_rounded, size: 16),
-                label: const Text('重新生成摘要'),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.primaryColor,
-                  textStyle: const TextStyle(
+                // 关键词标签
+                if (_summary!.keywords.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _buildSectionTitle('关键词', isDark),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _summary!.keywords.map((kw) {
+                      return Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppTheme.surfaceDark
+                              : const Color(0xFFF0F4F8),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '#$kw',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+
+                // 快捷提问区域 — 引导用户进入对话
+                const SizedBox(height: 20),
+                Text(
+                  '想深入了解？试试这些问题',
+                  style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
+                    color: isDark
+                        ? AppTheme.darkModeSecondary
+                        : AppTheme.lightText,
                   ),
                 ),
-              ),
-            ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    AiQuickAction(
+                      label: '解释核心概念',
+                      icon: Icons.lightbulb_outline,
+                      onTap: () {
+                        setState(() => _currentTab = 1);
+                        _sendMessage('请帮我解释这篇文章中的核心概念');
+                      },
+                    ),
+                    AiQuickAction(
+                      label: '实际应用场景',
+                      icon: Icons.cases_outlined,
+                      onTap: () {
+                        setState(() => _currentTab = 1);
+                        _sendMessage('这篇文章的内容有哪些实际应用场景？');
+                      },
+                    ),
+                    AiQuickAction(
+                      label: '延伸阅读建议',
+                      icon: Icons.menu_book_outlined,
+                      onTap: () {
+                        setState(() => _currentTab = 1);
+                        _sendMessage('读完这篇文章后，你有什么延伸阅读的建议吗？');
+                      },
+                    ),
+                  ],
+                ),
+
+                // 重新生成按钮
+                const SizedBox(height: 16),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: _generateSummary,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('重新生成摘要'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.primaryColor,
+                      textStyle: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -802,72 +792,71 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-            // AI 欢迎图标
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF6C63FF).withValues(alpha: 0.12),
-                    const Color(0xFF4ECDC4).withValues(alpha: 0.12),
+                // AI 欢迎图标
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF6C63FF).withValues(alpha: 0.12),
+                        const Color(0xFF4ECDC4).withValues(alpha: 0.12),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(
+                    Icons.auto_awesome,
+                    size: 36,
+                    color: Color(0xFF6C63FF),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '有什么想问的吗？',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '我已经阅读了这篇文章，可以回答你的任何问题',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark
+                        ? AppTheme.darkModeSecondary
+                        : AppTheme.lightText,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // 推荐提问按钮
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    AiQuickAction(
+                      label: '文章讲了什么？',
+                      icon: Icons.article_outlined,
+                      onTap: () => _sendMessage('这篇文章主要讲了什么？'),
+                    ),
+                    AiQuickAction(
+                      label: '有哪些重点？',
+                      icon: Icons.star_outline,
+                      onTap: () => _sendMessage('这篇文章有哪些重点内容？'),
+                    ),
+                    AiQuickAction(
+                      label: '作者的观点是？',
+                      icon: Icons.person_outline,
+                      onTap: () =>
+                          _sendMessage('作者在这篇文章中的核心观点是什么？'),
+                    ),
                   ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Icon(
-                Icons.auto_awesome,
-                size: 36,
-                color: Color(0xFF6C63FF),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '有什么想问的吗？',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '我已经阅读了这篇文章，可以回答你的任何问题',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: isDark
-                    ? AppTheme.darkModeSecondary
-                    : AppTheme.lightText,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // 推荐提问按钮
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: [
-                AiQuickAction(
-                  label: '文章讲了什么？',
-                  icon: Icons.article_outlined,
-                  onTap: () => _sendMessage('这篇文章主要讲了什么？'),
-                ),
-                AiQuickAction(
-                  label: '有哪些重点？',
-                  icon: Icons.star_outline,
-                  onTap: () => _sendMessage('这篇文章有哪些重点内容？'),
-                ),
-                AiQuickAction(
-                  label: '作者的观点是？',
-                  icon: Icons.person_outline,
-                  onTap: () =>
-                      _sendMessage('作者在这篇文章中的核心观点是什么？'),
-                ),
-              ],
-            ),
               ],
             ),
           ),
@@ -999,71 +988,6 @@ class _AiCompanionPanelState extends State<AiCompanionPanel>
           ),
         ),
       ),
-    );
-  }
-}
-
-// ==================== AI 思考动画组件 ====================
-// 渐变旋转的 AI 图标，表示 AI 正在处理中
-
-class _AiThinkingAnimation extends StatefulWidget {
-  const _AiThinkingAnimation({required this.isDark});
-  final bool isDark;
-
-  @override
-  State<_AiThinkingAnimation> createState() => _AiThinkingAnimationState();
-}
-
-class _AiThinkingAnimationState extends State<_AiThinkingAnimation>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Transform.rotate(
-          angle: _controller.value * 6.28318, // 2π 完整旋转
-          child: Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF6C63FF).withValues(alpha: 0.2),
-                  const Color(0xFF4ECDC4).withValues(alpha: 0.2),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.auto_awesome,
-                size: 28,
-                color: Color(0xFF6C63FF),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

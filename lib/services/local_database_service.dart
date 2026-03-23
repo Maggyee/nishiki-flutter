@@ -26,6 +26,7 @@ class LocalDatabaseService {
   static const String siteSourcesTable = 'site_sources';
   static const String siteGroupsTable = 'site_groups';
   static const String siteGroupMembersTable = 'site_group_members';
+  static const String syncQueueTable = 'sync_queue';
   static const int defaultMaxCachedPostsPerSource = 240;
   static const Duration defaultMaxCachedPostAge = Duration(days: 45);
 
@@ -210,6 +211,7 @@ class LocalDatabaseService {
     ''');
 
     await _createSourceManagementTables(db);
+    await _createSyncQueueTable(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -233,7 +235,7 @@ class LocalDatabaseService {
       await _createSourceManagementTables(db);
     }
     if (oldVersion < 6) {
-      await _createPostCacheTables(db);
+      await _createSyncQueueTable(db);
     }
   }
 
@@ -277,6 +279,22 @@ class LocalDatabaseService {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_site_group_members_group_sort
       ON $siteGroupMembersTable(group_id, sort_order ASC)
+    ''');
+  }
+
+  Future<void> _createSyncQueueTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $syncQueueTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_sync_queue_created
+      ON $syncQueueTable(created_at ASC)
     ''');
   }
 

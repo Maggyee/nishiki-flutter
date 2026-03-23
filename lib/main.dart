@@ -5,8 +5,10 @@ import 'config.dart';
 import 'home_screen.dart';
 import 'services/blog_source_service.dart';
 import 'services/bookmark_service.dart';
+import 'services/auth_service.dart';
 import 'services/local_database_service.dart';
 import 'services/settings_service.dart';
+import 'services/sync_service.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -20,9 +22,16 @@ void main() async {
   );
 
   await LocalDatabaseService().init();
+  await AuthService().init();
   await BlogSourceService().init();
   await BookmarkService().init();
   await SettingsService().init();
+  await SyncService().init();
+  if (AuthService().isSignedIn) {
+    await SyncService().bootstrap();
+    await SyncService().pushPendingChanges();
+    await SyncService().connectRealtime();
+  }
 
   runApp(const NishikiApp());
 }

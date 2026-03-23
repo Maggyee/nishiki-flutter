@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -6,9 +6,12 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../config.dart';
 import '../models/ai_models.dart';
+import '../models/sync_models.dart';
 import '../models/wp_models.dart';
+import 'auth_service.dart';
 import 'blog_source_service.dart';
 import 'local_database_service.dart';
+import 'sync_service.dart';
 
 class AiService {
   static final AiService _instance = AiService._internal();
@@ -16,13 +19,15 @@ class AiService {
   factory AiService() => _instance;
 
   AiService._internal({http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   final http.Client _client;
   final Map<String, AiSummary> _summaryCache = <String, AiSummary>{};
   final Map<String, List<AiMessage>> _chatCache = <String, List<AiMessage>>{};
   final LocalDatabaseService _databaseService = LocalDatabaseService();
-  final BlogSourceService _blogSource = BlogSourceService();
+  BlogSourceService get _blogSource => BlogSourceService();
+  AuthService get _authService => AuthService();
+  SyncService get _syncService => SyncService();
 
   AiSummary? getCachedSummary(int postId, {String? sourceBaseUrl}) =>
       _summaryCache[_postKey(postId, sourceBaseUrl)];
@@ -93,6 +98,23 @@ class AiService {
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    await _syncService.enqueueChange(
+      SyncChange(
+        entityType: 'ai_summary',
+        entityId: '$resolvedSource:$postId',
+        data: {
+          'sourceBaseUrl': resolvedSource,
+          'postId': postId,
+          'summary': summary.summary,
+          'keyPoints': summary.keyPoints,
+          'keywords': summary.keywords,
+          'provider': 'proxy',
+          'model': AppConfig.aiProxyBaseUrl,
+          'updatedAt': DateTime.now().toIso8601String(),
+        },
+      ),
     );
   }
 
@@ -188,19 +210,40 @@ class AiService {
         );
       }
     });
+
+    await _syncService.enqueueChange(
+      SyncChange(
+        entityType: 'ai_thread',
+        entityId: '$resolvedSource:$postId',
+        data: {
+          'id': '$resolvedSource:$postId',
+          'sourceBaseUrl': resolvedSource,
+          'postId': postId,
+          'updatedAt': DateTime.now().toIso8601String(),
+          'messages': messages
+              .map(
+                (message) => {
+                  'id': message.id,
+                  'role': _serializeMessage(message)['role'],
+                  'content': message.content,
+                  'createdAt': message.timestamp.toIso8601String(),
+                  'updatedAt': message.timestamp.toIso8601String(),
+                },
+              )
+              .toList(),
+        },
+      ),
+    );
   }
 
   Future<AiSummary> summarizeArticle(WpPost post) async {
-    final payload = await _postJson(
-      '/api/ai/summarize',
-      {'post': _serializePost(post)},
-    );
+    final payload = await _postJson('/api/ai/summarize', {
+      'post': _serializePost(post),
+    });
 
     final text = (payload['text'] as String?)?.trim();
     if (text == null || text.isEmpty) {
-      throw const AiServiceException(
-        message: 'AI 返回内容为空，请稍后重试',
-      );
+      throw const AiServiceException(message: 'AI 返回内容为空，请稍后重试');
     }
 
     return _parseSummaryResponse(text);
@@ -211,20 +254,15 @@ class AiService {
     required String userMessage,
     required List<AiMessage> history,
   }) async* {
-    final payload = await _postJson(
-      '/api/ai/chat',
-      {
-        'post': _serializePost(post),
-        'userMessage': userMessage,
-        'history': history.map(_serializeMessage).toList(),
-      },
-    );
+    final payload = await _postJson('/api/ai/chat', {
+      'post': _serializePost(post),
+      'userMessage': userMessage,
+      'history': history.map(_serializeMessage).toList(),
+    });
 
     final reply = (payload['reply'] as String?)?.trim();
     if (reply == null || reply.isEmpty) {
-      throw const AiServiceException(
-        message: '对话失败，请稍后重试',
-      );
+      throw const AiServiceException(message: '对话失败，请稍后重试');
     }
 
     yield reply;
@@ -255,22 +293,21 @@ class AiService {
     Map<String, dynamic> body,
   ) async {
     if (!AppConfig.hasAiProxy) {
-      throw const AiServiceException(
-        message: 'AI 代理未配置：请设置 AI_PROXY_BASE_URL',
-      );
+      throw const AiServiceException(message: 'AI 代理未配置：请设置 AI_PROXY_BASE_URL');
     }
 
     late final http.Response response;
     try {
       response = await _client.post(
-        _resolveUri(path),
-        headers: {'Content-Type': 'application/json'},
+        AppConfig.resolveApiUri(path),
+        headers: {
+          'Content-Type': 'application/json',
+          ..._authService.buildAuthHeaders(),
+        },
         body: jsonEncode(body),
       );
     } on Exception {
-      throw AiServiceException(
-        message: 'AI 请求失败，请检查网络连接',
-      );
+      throw AiServiceException(message: 'AI 请求失败，请检查网络连接');
     }
 
     Map<String, dynamic> decoded;
@@ -296,27 +333,10 @@ class AiService {
         );
       }
 
-      throw AiServiceException(
-        message: 'AI 请求失败（HTTP ${response.statusCode}）',
-      );
+      throw AiServiceException(message: 'AI 请求失败（HTTP ${response.statusCode}）');
     }
 
     return decoded;
-  }
-
-  Uri _resolveUri(String path) {
-    final base = AppConfig.aiProxyBaseUrl.trim();
-    final normalizedPath = path.startsWith('/') ? path.substring(1) : path;
-
-    if (base.startsWith('http://') || base.startsWith('https://')) {
-      final baseUri = Uri.parse(base.endsWith('/') ? base : '$base/');
-      return baseUri.resolve(normalizedPath);
-    }
-
-    final relativeBase = base.startsWith('/') ? base : '/$base';
-    final baseUri =
-        Uri.base.resolve(relativeBase.endsWith('/') ? relativeBase : '$relativeBase/');
-    return baseUri.resolve(normalizedPath);
   }
 
   Map<String, dynamic> _serializePost(WpPost post) {
@@ -441,28 +461,24 @@ class AiService {
     var keyPoints = <String>[];
     var keywords = <String>[];
 
-    final summaryMatch =
-        RegExp(r'【摘要】\s*([\s\S]*?)(?=【|$)').firstMatch(text);
+    final summaryMatch = RegExp(r'【摘要】\s*([\s\S]*?)(?=【|$)').firstMatch(text);
     if (summaryMatch != null) {
       summary = summaryMatch.group(1)?.trim() ?? '';
     }
 
-    final pointsMatch =
-        RegExp(r'【关键要点】\s*([\s\S]*?)(?=【|$)').firstMatch(text);
+    final pointsMatch = RegExp(r'【关键要点】\s*([\s\S]*?)(?=【|$)').firstMatch(text);
     if (pointsMatch != null) {
       final pointsText = pointsMatch.group(1)?.trim() ?? '';
       keyPoints = pointsText
           .split('\n')
           .map(
-            (line) =>
-                line.replaceAll(RegExp(r'^[\*\-\d+.、]+\s*'), '').trim(),
+            (line) => line.replaceAll(RegExp(r'^[\*\-\d+.、]+\s*'), '').trim(),
           )
           .where((line) => line.isNotEmpty)
           .toList();
     }
 
-    final keywordsMatch =
-        RegExp(r'【关键词】\s*([\s\S]*?)(?=【|$)').firstMatch(text);
+    final keywordsMatch = RegExp(r'【关键词】\s*([\s\S]*?)(?=【|$)').firstMatch(text);
     if (keywordsMatch != null) {
       final keywordsText = keywordsMatch.group(1)?.trim() ?? '';
       keywords = keywordsText

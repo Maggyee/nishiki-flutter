@@ -2,20 +2,25 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'models/wp_models.dart';
 import 'services/blog_source_service.dart';
 import 'services/wp_api_service.dart';
 import 'services/bookmark_service.dart';
-import 'services/settings_service.dart';
 import 'widgets/article_card.dart';
 import 'screens/article_detail_screen.dart';
 import 'screens/stats_posts_screen.dart';
 import 'theme/app_theme.dart';
 import 'config.dart';
 
+// 拆分出的子组件
+import 'widgets/home_tabs/home_feed_tab.dart';
+import 'widgets/home_tabs/search_tab.dart';
+import 'widgets/home_tabs/saved_tab.dart';
+import 'widgets/home_tabs/profile_tab.dart';
+import 'widgets/home_tabs/source_manager_sheet.dart';
+
+/// 主页 — 承载 4 个 Tab 的壳层，管理全局状态和业务逻辑
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,21 +29,23 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+  // ===== 服务实例 =====
   final _api = WpApiService();
   final _searchController = TextEditingController();
   final _bookmarkService = BookmarkService();
-  final _settings = SettingsService();
   final _blogSource = BlogSourceService();
 
+  // ===== 文章和分类数据 =====
   List<WpPost> _posts = const [];
   List<WpCategory> _categories = const [];
   final List<String> _recentSearches = [];
   bool _categoriesLoading = false;
 
-  // 收藏的文章列表
+  // ===== 收藏文章数据 =====
   List<WpPost> _savedPosts = const [];
   bool _savedLoading = false;
 
+  // ===== 加载状态 =====
   bool _loading = true;
   String? _error;
   WpApiException? _apiError;
@@ -47,6 +54,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late AnimationController _avatarPulseCtrl; // 头像呼吸脉冲
   late AnimationController _profileEnterCtrl; // 入场动画
   late Animation<double> _avatarPulseAnim; // 脉冲缩放动画
+
+  // ===== Tab 状态 =====
   int _tabIndex = 0;
   int? _selectedCategoryId;
   Timer? _searchDebounce;
@@ -55,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    // 监听站点源状态变化
     _blogSource.baseUrl.addListener(_handleSourceStateChanged);
     _blogSource.mode.addListener(_handleSourceStateChanged);
     _blogSource.sourceEntries.addListener(_handleSourceStateChanged);
@@ -94,25 +104,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // ==================== 业务逻辑 ====================
+
   bool get _isAggregateMode =>
       _blogSource.mode.value == BlogSourceMode.aggregate;
 
+  /// 站点源状态变化处理
   void _handleSourceStateChanged() {
-    if (!mounted) {
-      return;
-    }
-
+    if (!mounted) return;
     setState(() {
       _selectedCategoryId = null;
       _categories = const [];
     });
-
     if (_tabIndex == 1 && !_isAggregateMode) {
       _loadCategoriesIfNeeded();
     }
     _loadInitial();
   }
 
+  /// 延迟搜索（防抖）
   void _scheduleSearch({
     String? forcedTerm,
     Duration delay = const Duration(milliseconds: 280),
@@ -123,6 +133,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
+  /// 控制 Profile Tab 的头像动画
   void _syncProfilePulseForTab(int tabIndex) {
     if (tabIndex == 3) {
       if (!_avatarPulseCtrl.isAnimating) {
@@ -130,11 +141,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
       return;
     }
-
     _avatarPulseCtrl.stop();
     _avatarPulseCtrl.value = 0.0;
   }
 
+  /// 首次加载文章列表
   Future<void> _loadInitial() async {
     setState(() {
       _loading = true;
@@ -143,10 +154,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
 
     try {
-      setState(() {
-        _posts = const [];
-      });
-
+      setState(() => _posts = const []);
       final posts = await _api.fetchPosts();
       if (!mounted) return;
       setState(() {
@@ -166,12 +174,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// 懒加载分类列表
   Future<void> _loadCategoriesIfNeeded() async {
     if (_isAggregateMode) {
       if (mounted && _categories.isNotEmpty) {
-        setState(() {
-          _categories = const [];
-        });
+        setState(() => _categories = const []);
       }
       return;
     }
@@ -180,11 +187,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     try {
       final categories = await _api.fetchCategories();
       if (!mounted) return;
-      setState(() {
-        _categories = categories;
-      });
+      setState(() => _categories = categories);
     } catch (_) {
-      // Keep search usable even if categories fail to load.
+      // 分类加载失败不影响搜索功能
     } finally {
       _categoriesLoading = false;
     }
@@ -209,38 +214,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<List<WpPost>> _getSavedPostsForView() async {
-    await _bookmarkService.init();
-    final savedData = await _bookmarkService.getSavedPostsData();
-    return savedData.map((data) => WpPost.fromSummaryMap(data)).toList();
-  }
-
-  Future<List<WpPost>> _getLikedPostsForView() async {
-    await _bookmarkService.init();
-    final likedData = await _bookmarkService.getLikedPostsData();
-    return likedData.map((data) => WpPost.fromSummaryMap(data)).toList();
-  }
-
-  Future<List<WpPost>> _getReadPostsForView() async {
-    await _settings.init();
-    return _settings.getReadPosts();
-  }
-
+  /// 打开文章详情页
   Future<void> _openPostDetail(WpPost post) async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: post)));
-
-    if (!mounted) {
-      return;
-    }
-
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ArticleDetailScreen(post: post)),
+    );
+    if (!mounted) return;
     setState(() {});
-    if (_tabIndex == 2) {
-      await _loadSavedPosts();
-    }
+    if (_tabIndex == 2) await _loadSavedPosts();
   }
 
+  /// 打开统计文章列表页面
   Future<void> _openStatPostsScreen({
     required String title,
     required String emptyTitle,
@@ -261,17 +245,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
       ),
     );
-
-    if (!mounted) {
-      return;
-    }
-
+    if (!mounted) return;
     setState(() {});
-    if (_tabIndex == 2) {
-      await _loadSavedPosts();
-    }
+    if (_tabIndex == 2) await _loadSavedPosts();
   }
 
+  /// 执行搜索
   Future<void> _search([String? forcedTerm]) async {
     final term = (forcedTerm ?? _searchController.text).trim();
     final requestId = ++_searchRequestId;
@@ -293,9 +272,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         categoryId: _selectedCategoryId,
       );
 
-      if (!mounted || requestId != _searchRequestId) {
-        return;
-      }
+      if (!mounted || requestId != _searchRequestId) return;
 
       setState(() {
         _posts = posts;
@@ -310,10 +287,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
       }
     } catch (e) {
-      if (!mounted || requestId != _searchRequestId) {
-        return;
-      }
-
+      if (!mounted || requestId != _searchRequestId) return;
       setState(() {
         if (e is WpApiException) {
           _apiError = e;
@@ -326,13 +300,59 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// 切换 Tab
+  void _goToTab(int tabIndex) {
+    setState(() => _tabIndex = tabIndex);
+    _syncProfilePulseForTab(tabIndex);
+  }
+
+  // ==================== UI 构建 ====================
+
   @override
   Widget build(BuildContext context) {
+    // 根据当前 Tab 渲染对应子组件
     final body = switch (_tabIndex) {
-      0 => _buildHomeTab(),
-      1 => _buildSearchTab(),
-      2 => _buildSavedTab(),
-      _ => _buildProfileTab(),
+      0 => HomeFeedTab(
+          posts: _posts,
+          loading: _loading,
+          error: _error,
+          apiError: _apiError,
+          scopeLabel: _blogSource.currentScopeLabel,
+          isAggregateMode: _isAggregateMode,
+          onRefresh: _loadInitial,
+          onOpenPost: _openPostDetail,
+          onManageSources: () => SourceManagerSheet.show(context),
+          onBuildFeed: _buildFeed,
+        ),
+      1 => SearchTab(
+          searchController: _searchController,
+          categories: _categories,
+          recentSearches: _recentSearches,
+          selectedCategoryId: _selectedCategoryId,
+          isAggregateMode: _isAggregateMode,
+          onSearch: _search,
+          onScheduleSearch: ({String? forcedTerm, Duration delay = const Duration(milliseconds: 280)}) {
+            _scheduleSearch(forcedTerm: forcedTerm, delay: delay);
+          },
+          onCategorySelected: (categoryId) {
+            setState(() => _selectedCategoryId = categoryId);
+            _scheduleSearch(delay: Duration.zero);
+          },
+          onBuildFeed: _buildFeed,
+        ),
+      2 => SavedTab(
+          savedPosts: _savedPosts,
+          savedLoading: _savedLoading,
+          onRefresh: _loadSavedPosts,
+          onPostsChanged: _loadSavedPosts,
+          onGoToTab: _goToTab,
+        ),
+      _ => ProfileTab(
+          avatarPulseAnim: _avatarPulseAnim,
+          profileEnterCtrl: _profileEnterCtrl,
+          onOpenStatPostsScreen: _openStatPostsScreen,
+          onShowSourceManager: () => SourceManagerSheet.show(context),
+        ),
     };
 
     return Scaffold(
@@ -360,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         actions: [
           IconButton(
             tooltip: '站点与组合',
-            onPressed: _showSourceManagerSheet,
+            onPressed: () => SourceManagerSheet.show(context),
             icon: const Icon(Icons.hub_outlined),
           ),
           IconButton(
@@ -388,9 +408,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _syncProfilePulseForTab(value);
             // 切换到收藏 tab 时自动刷新数据
             if (value == 2) _loadSavedPosts();
-            // 切换到搜索 tab 时懒加载分类，提升首页首屏速度
+            // 切换到搜索 tab 时懒加载分类
             if (value == 1) _loadCategoriesIfNeeded();
-            // 切换到 Profile 时播放一次入场动画
+            // 切换到 Profile 时播放入场动画
             if (value == 3) {
               _profileEnterCtrl.forward(from: 0.0);
             }
@@ -426,284 +446,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ==================== 首页 Tab ====================
-  Widget _buildHomeTab() {
-    final scopeLabel = _blogSource.currentScopeLabel;
-    return RefreshIndicator(
-      onRefresh: _loadInitial,
-      child: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-            child: Text('今日精选', style: Theme.of(context).textTheme.titleLarge),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text(
-              '来自你 WordPress 站点的最新文章',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                Chip(
-                  avatar: Icon(
-                    _isAggregateMode
-                        ? Icons.hub_rounded
-                        : Icons.language_rounded,
-                    size: 18,
-                  ),
-                  label: Text(scopeLabel),
-                  onDeleted: _showSourceManagerSheet,
-                  deleteIcon: const Icon(Icons.tune_rounded, size: 18),
-                ),
-              ],
-            ),
-          ),
-          _buildHomeHero(),
-          _buildFeed(sectionTitle: '热门推荐', skipFirst: true),
-        ],
-      ),
-    );
-  }
+  // ==================== 共用的 Feed 列表构建 ====================
 
-  Widget _buildHomeHero() {
-    if (_loading) {
-      return _buildHeroSkeleton();
-    }
-    if (_error != null || _posts.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final featured = _posts.first;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-          child: Text(
-            '精选推荐',
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-          ),
-        ),
-        HeroArticleCard(
-          post: featured,
-          onTap: () async {
-            await Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ArticleDetailScreen(post: featured),
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  // ==================== 搜索 Tab ====================
-  Widget _buildSearchTab() {
-    return RefreshIndicator(
-      onRefresh: _search,
-      child: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
-        children: [
-          _buildSearchArea(),
-          _buildCategoryArea(),
-          _buildRecentSearches(),
-          _buildFeed(sectionTitle: '搜索结果'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchArea() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: SearchBar(
-        key: const ValueKey('home.search.entry'),
-        controller: _searchController,
-        hintText: '搜索文章、话题或作者',
-        leading: const Icon(Icons.search),
-        trailing: [
-          IconButton(
-            key: const ValueKey('home.search.submit'),
-            tooltip: '开始搜索',
-            onPressed: _search,
-            icon: const Icon(Icons.arrow_forward),
-          ),
-        ],
-        onSubmitted: (_) => _search(),
-        onChanged: (_) => _scheduleSearch(),
-      ),
-    );
-  }
-
-  Widget _buildCategoryArea() {
-    if (_isAggregateMode) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.info_outline_rounded, size: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    '聚合模式下暂不按分类筛选，避免不同站点分类 ID 冲突。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          ChoiceChip(
-            label: const Text('全部'),
-            selected: _selectedCategoryId == null,
-            showCheckmark: true,
-            checkmarkColor: AppTheme.primaryDark,
-            labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: AppTheme.darkText,
-              fontWeight: FontWeight.w700,
-            ),
-            selectedColor: Theme.of(context).colorScheme.primaryContainer,
-            side: BorderSide(
-              color: _selectedCategoryId == null
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).dividerColor,
-              width: _selectedCategoryId == null ? 2 : 1,
-            ),
-            onSelected: (_) {
-              setState(() => _selectedCategoryId = null);
-              _scheduleSearch(delay: Duration.zero);
-            },
-          ),
-          ..._categories.take(8).map((category) {
-            final selected = _selectedCategoryId == category.id;
-            return ChoiceChip(
-              label: Text(category.name),
-              selected: selected,
-              showCheckmark: true,
-              checkmarkColor: AppTheme.primaryDark,
-              labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: AppTheme.darkText,
-                fontWeight: FontWeight.w700,
-              ),
-              selectedColor: Theme.of(context).colorScheme.primaryContainer,
-              side: BorderSide(
-                color: selected
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).dividerColor,
-                width: selected ? 2 : 1,
-              ),
-              onSelected: (_) {
-                setState(
-                  () => _selectedCategoryId = selected ? null : category.id,
-                );
-                _scheduleSearch(delay: Duration.zero);
-              },
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecentSearches() {
-    if (_recentSearches.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('最近搜索', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _recentSearches.map((term) {
-              return ActionChip(
-                label: Text(term),
-                onPressed: () {
-                  _searchController.text = term;
-                  _scheduleSearch(forcedTerm: term, delay: Duration.zero);
-                },
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==================== 文章 Feed 列表 ====================
+  /// 构建文章 Feed 列表（首页和搜索 Tab 共用）
   Widget _buildFeed({required String sectionTitle, bool skipFirst = false}) {
     if (_loading) {
       return _buildFeedSkeleton(sectionTitle: sectionTitle);
     }
 
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '无法加载内容',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                Text(_error!),
-                const SizedBox(height: 8),
-                ..._buildErrorTips(),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    if (_apiError?.canRetry ?? true)
-                      FilledButton(
-                        onPressed: _loadInitial,
-                        child: const Text('重试'),
-                      ),
-                    if (_apiError?.showConfigEntry ?? false)
-                      OutlinedButton.icon(
-                        onPressed: _showConfigHelpDialog,
-                        icon: const Icon(Icons.settings_outlined),
-                        label: const Text('站点配置帮助'),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+      return _buildErrorCard();
     }
 
     final displayPosts = skipFirst && _posts.length > 1
@@ -748,24 +500,107 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildHeroSkeleton() {
+  /// 错误提示卡片
+  Widget _buildErrorCard() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Container(
-        height: 220,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-          color: Theme.of(context).brightness == Brightness.dark
-              ? AppTheme.cardDark
-              : Colors.white,
-          border: Border.all(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
+      padding: const EdgeInsets.all(16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '无法加载内容',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(_error!),
+              const SizedBox(height: 8),
+              ..._buildErrorTips(),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  if (_apiError?.canRetry ?? true)
+                    FilledButton(
+                      onPressed: _loadInitial,
+                      child: const Text('重试'),
+                    ),
+                  if (_apiError?.showConfigEntry ?? false)
+                    OutlinedButton.icon(
+                      onPressed: _showConfigHelpDialog,
+                      icon: const Icon(Icons.settings_outlined),
+                      label: const Text('站点配置帮助'),
+                    ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
+  /// 错误提示信息
+  List<Widget> _buildErrorTips() {
+    final tips = <String>[];
+    if (_apiError?.type == WpApiErrorType.network) {
+      tips.add('检查网络连接，确认当前设备可访问互联网。');
+      tips.add('确认你的站点可以在浏览器中正常打开。');
+    } else if (_apiError?.type == WpApiErrorType.config) {
+      tips.add('检查 WP_BASE_URL 是否指向你的 WordPress 根域名。');
+      tips.add('地址示例：https://blog.nishiki.icu');
+    } else if (_apiError?.type == WpApiErrorType.server) {
+      tips.add('确认 WordPress 已启用 REST API 并允许匿名读取文章。');
+      tips.add('如果使用安全插件，请放行 /wp-json/wp/v2/*。');
+    } else {
+      tips.add('请稍后重试，若持续失败可刷新页面或重启应用。');
+    }
+    return [
+      ...tips.map(
+        (tip) => Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 2, right: 6),
+                child: Icon(Icons.info_outline, size: 14),
+              ),
+              Expanded(
+                child: Text(tip, style: Theme.of(context).textTheme.bodySmall),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// WordPress 配置帮助对话框
+  void _showConfigHelpDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('WordPress 配置帮助'),
+        content: SelectableText(
+          '当前站点地址：${AppConfig.wordpressBaseUrl}\n\n'
+          '请确保地址是你的 WordPress 根域名，然后重新运行：\n'
+          'flutter run --dart-define=WP_BASE_URL=https://blog.nishiki.icu',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Feed 骨架屏加载占位
   Widget _buildFeedSkeleton({required String sectionTitle, int count = 3}) {
     final cardColor = Theme.of(context).brightness == Brightness.dark
         ? AppTheme.cardDark
@@ -796,1867 +631,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           );
         }),
       ],
-    );
-  }
-
-  List<Widget> _buildErrorTips() {
-    final tips = <String>[];
-
-    if (_apiError?.type == WpApiErrorType.network) {
-      tips.add('检查网络连接，确认当前设备可访问互联网。');
-      tips.add('确认你的站点可以在浏览器中正常打开。');
-    } else if (_apiError?.type == WpApiErrorType.config) {
-      tips.add('检查 WP_BASE_URL 是否指向你的 WordPress 根域名。');
-      tips.add('地址示例：https://blog.nishiki.icu');
-    } else if (_apiError?.type == WpApiErrorType.server) {
-      tips.add('确认 WordPress 已启用 REST API 并允许匿名读取文章。');
-      tips.add('如果使用安全插件，请放行 /wp-json/wp/v2/*。');
-    } else {
-      tips.add('请稍后重试，若持续失败可刷新页面或重启应用。');
-    }
-
-    return [
-      ...tips.map(
-        (tip) => Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 2, right: 6),
-                child: Icon(Icons.info_outline, size: 14),
-              ),
-              Expanded(
-                child: Text(tip, style: Theme.of(context).textTheme.bodySmall),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ];
-  }
-
-  void _showConfigHelpDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('WordPress 配置帮助'),
-        content: SelectableText(
-          '当前站点地址：${AppConfig.wordpressBaseUrl}\n\n'
-          '请确保地址是你的 WordPress 根域名，然后重新运行：\n'
-          'flutter run --dart-define=WP_BASE_URL=https://blog.nishiki.icu',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==================== 收藏 Tab ====================
-  Widget _buildSavedTab() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // 加载中
-    if (_savedLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    // 空状态 — 精美引导页
-    if (_savedPosts.isEmpty) {
-      return Center(
-        key: const ValueKey('saved.empty_state'),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppTheme.primaryColor.withValues(alpha: 0.15)
-                      : AppTheme.primaryLight,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: const Icon(
-                  Icons.bookmark_outline_rounded,
-                  size: 56,
-                  color: AppTheme.primaryColor,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                '暂无收藏文章',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '在文章详情页点击书签图标 🔖\n即可将喜欢的文章收藏到这里',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.6,
-                  color: isDark
-                      ? AppTheme.darkModeSecondary
-                      : AppTheme.lightText,
-                ),
-              ),
-              const SizedBox(height: 28),
-              FilledButton.icon(
-                key: const ValueKey('saved.empty_state.cta'),
-                onPressed: () => _goToTab(0),
-                icon: const Icon(Icons.explore_outlined, size: 18),
-                label: const Text('去发现文章'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // 有收藏内容
-    return RefreshIndicator(
-      onRefresh: _loadSavedPosts,
-      child: ListView.builder(
-        padding: const EdgeInsets.only(bottom: 24),
-        itemCount: _savedPosts.length + 2,
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '我的收藏',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: isDark
-                                    ? AppTheme.darkModeText
-                                    : AppTheme.darkText,
-                              ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '共 ${_savedPosts.length} 篇文章',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isDark
-                                ? AppTheme.darkModeSecondary
-                                : AppTheme.lightText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_savedPosts.isNotEmpty)
-                    TextButton.icon(
-                      onPressed: () => _showClearSavedDialog(),
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                      label: const Text('清空'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.redAccent,
-                        textStyle: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          }
-
-          if (index == 1) {
-            return const SizedBox(height: 8);
-          }
-
-          final post = _savedPosts[index - 2];
-          return _buildSavedCard(post, isDark);
-        },
-      ),
-    );
-  }
-
-  /// 收藏卡片 — 支持滑动取消收藏
-  Widget _buildSavedCard(WpPost post, bool isDark) {
-    return Dismissible(
-      key: ValueKey('saved_${post.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.redAccent.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-        ),
-        child: const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.delete_outline_rounded,
-              color: Colors.redAccent,
-              size: 24,
-            ),
-            SizedBox(height: 4),
-            Text(
-              '取消收藏',
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-      confirmDismiss: (direction) async {
-        await _bookmarkService.toggleSave(
-          post.id,
-          sourceBaseUrl: post.sourceBaseUrl,
-        );
-        return true;
-      },
-      onDismissed: (_) {
-        setState(() {
-          _savedPosts = _savedPosts.where((p) => p.id != post.id).toList();
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('已取消收藏：${post.title}'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            action: SnackBarAction(
-              label: '撤销',
-              onPressed: () async {
-                await _bookmarkService.toggleSave(
-                  post.id,
-                  sourceBaseUrl: post.sourceBaseUrl,
-                  postData: post.toSummaryMap(),
-                );
-                _loadSavedPosts();
-              },
-            ),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Material(
-          color: isDark ? AppTheme.cardDark : AppTheme.cardLight,
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            onTap: () async {
-              if (post.contentHtml.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('加载文章内容中...'),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    duration: const Duration(seconds: 1),
-                  ),
-                );
-                try {
-                  final freshPost = await _api.fetchPostById(
-                    post.id,
-                    sourceBaseUrl: post.sourceBaseUrl,
-                  );
-                  if (freshPost != null && mounted) {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ArticleDetailScreen(post: freshPost),
-                      ),
-                    );
-                    _loadSavedPosts();
-                  }
-                } catch (_) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('无法加载文章，请检查网络连接'),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    );
-                  }
-                }
-              } else {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ArticleDetailScreen(post: post),
-                  ),
-                );
-                _loadSavedPosts();
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                boxShadow: isDark ? null : AppTheme.softShadow,
-              ),
-              child: Row(
-                children: [
-                  // 左侧缩略图
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: post.featuredImageUrl != null
-                        ? CachedNetworkImage(
-                            imageUrl: post.featuredImageUrl!,
-                            width: 80,
-                            height: 80,
-                            fit: BoxFit.cover,
-                            memCacheWidth: 160,
-                            memCacheHeight: 160,
-                            maxWidthDiskCache: 320,
-                            fadeInDuration: const Duration(milliseconds: 120),
-                            placeholder: (context, url) => Container(
-                              width: 80,
-                              height: 80,
-                              color: isDark
-                                  ? AppTheme.surfaceDark
-                                  : AppTheme.dividerColor,
-                            ),
-                            errorWidget: (context, url, error) => Container(
-                              width: 80,
-                              height: 80,
-                              color: AppTheme.primaryLight,
-                              child: const Icon(
-                                Icons.image_outlined,
-                                color: AppTheme.primaryColor,
-                              ),
-                            ),
-                          )
-                        : Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              gradient: AppTheme.heroGradient,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Center(
-                              child: Text(
-                                post.title.isNotEmpty ? post.title[0] : '?',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (post.categories.isNotEmpty)
-                          Text(
-                            post.categories.first.toUpperCase(),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.5,
-                              color: AppTheme.primaryColor,
-                            ),
-                          ),
-                        if (post.categories.isNotEmpty)
-                          const SizedBox(height: 4),
-                        Text(
-                          post.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                height: 1.3,
-                              ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Text(
-                              post.author,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark
-                                    ? AppTheme.darkModeSecondary
-                                    : AppTheme.lightText,
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                              ),
-                              child: Container(
-                                width: 3,
-                                height: 3,
-                                decoration: const BoxDecoration(
-                                  color: AppTheme.lightText,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              _formatDate(post.date),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark
-                                    ? AppTheme.darkModeSecondary
-                                    : AppTheme.lightText,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: Icon(
-                      Icons.bookmark_rounded,
-                      color: AppTheme.primaryColor,
-                      size: 22,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 清空收藏确认对话框
-  void _showClearSavedDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('清空收藏？'),
-        content: const Text('确定要清空所有收藏的文章吗？此操作不可撤销。'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              for (final post in _savedPosts) {
-                await _bookmarkService.toggleSave(post.id);
-              }
-              _loadSavedPosts();
-            },
-            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-            child: const Text('清空'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==================== Profile Tab（完整实现 + 交互动画） ====================
-  Widget _buildProfileTab() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final likedCount = _bookmarkService.likedCount;
-    final savedCount = _bookmarkService.savedCount;
-    final readCount = _settings.readCount;
-    final sourceHost = _blogSource.currentScopeLabel;
-    final fontScalePercent = (_settings.fontScale.value * 100).round();
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 40),
-      children: [
-        // ===== 顶部渐变 Header 区域（带入场动画） =====
-        _buildAnimatedEntry(
-          delay: 0.0,
-          child: Container(
-            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: AppTheme.heroGradient,
-              borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.primaryColor.withValues(alpha: 0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                // 用户头像 — 呼吸脉冲动画
-                AnimatedBuilder(
-                  animation: _avatarPulseAnim,
-                  builder: (context, child) {
-                    return Transform.scale(
-                      scale: _avatarPulseAnim.value,
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.2),
-                          border: Border.all(
-                            color: Colors.white.withValues(
-                              alpha:
-                                  0.3 +
-                                  0.2 * (_avatarPulseAnim.value - 1.0) / 0.08,
-                            ),
-                            width: 2,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.white.withValues(
-                                alpha:
-                                    0.1 +
-                                    0.15 *
-                                        (_avatarPulseAnim.value - 1.0) /
-                                        0.08,
-                              ),
-                              blurRadius: 16 * _avatarPulseAnim.value,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                        child: ClipOval(
-                          child: Image.asset(
-                            'assets/images/site_avatar.webp',
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Center(
-                                child: Icon(
-                                  Icons.person_rounded,
-                                  size: 36,
-                                  color: Colors.white,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 14),
-                // 名称
-                const Text(
-                  '阅读者',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  sourceHost,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '你的阅读偏好、站点来源和阅读记录都会保存在这里。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.82),
-                    fontSize: 12,
-                    height: 1.45,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _buildProfileBadge(
-                      icon: _settings.themeModeIcon,
-                      label: _settings.themeModeName,
-                    ),
-                    _buildProfileBadge(
-                      icon: Icons.text_fields_rounded,
-                      label: '$fontScalePercent% 字号',
-                    ),
-                    _buildProfileBadge(
-                      icon: Icons.language_rounded,
-                      label: sourceHost,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        // ===== 阅读统计卡片（带入场动画） =====
-        _buildAnimatedEntry(
-          delay: 0.1,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.cardDark : AppTheme.cardLight,
-                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                boxShadow: isDark ? null : AppTheme.softShadow,
-              ),
-              child: Row(
-                children: [
-                  // 已读（带计数动画）
-                  _buildAnimatedStatItem(
-                    icon: Icons.auto_stories_rounded,
-                    label: '已读',
-                    count: readCount,
-                    color: const Color(0xFF6FAEEB),
-                    isDark: isDark,
-                    onTap: () => _openStatPostsScreen(
-                      title: '已读文章',
-                      emptyTitle: '还没有已读记录',
-                      emptySubtitle: '打开文章后会自动记录到这里。',
-                      emptyIcon: Icons.auto_stories_rounded,
-                      loadPosts: _getReadPostsForView,
-                    ),
-                  ),
-                  // 分隔线
-                  Container(
-                    width: 1,
-                    height: 40,
-                    color: isDark
-                        ? AppTheme.surfaceDark
-                        : AppTheme.dividerColor,
-                  ),
-                  // 收藏
-                  _buildAnimatedStatItem(
-                    icon: Icons.bookmark_rounded,
-                    label: '收藏',
-                    count: savedCount,
-                    color: const Color(0xFFFFB347),
-                    isDark: isDark,
-                    onTap: () => _openStatPostsScreen(
-                      title: '收藏文章',
-                      emptyTitle: '还没有收藏文章',
-                      emptySubtitle: '在文章详情页点击收藏后，会显示在这里。',
-                      emptyIcon: Icons.bookmark_rounded,
-                      loadPosts: _getSavedPostsForView,
-                    ),
-                  ),
-                  // 分隔线
-                  Container(
-                    width: 1,
-                    height: 40,
-                    color: isDark
-                        ? AppTheme.surfaceDark
-                        : AppTheme.dividerColor,
-                  ),
-                  // 点赞
-                  _buildAnimatedStatItem(
-                    icon: Icons.favorite_rounded,
-                    label: '点赞',
-                    count: likedCount,
-                    color: const Color(0xFFFF6B8A),
-                    isDark: isDark,
-                    onTap: () => _openStatPostsScreen(
-                      title: '点赞文章',
-                      emptyTitle: '还没有点赞文章',
-                      emptySubtitle: '在文章详情页点赞后，会显示在这里。',
-                      emptyIcon: Icons.favorite_rounded,
-                      loadPosts: _getLikedPostsForView,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        // ===== 设置区域标题（滑入动画） =====
-        _buildAnimatedEntry(
-          delay: 0.2,
-          slideOffset: const Offset(-0.1, 0), // 从左侧滑入
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-            child: Text(
-              '阅读偏好',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-                color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
-              ),
-            ),
-          ),
-        ),
-
-        // ===== 设置项列表（带入场） =====
-        _buildAnimatedEntry(
-          delay: 0.25,
-          child: _buildSettingsCard(isDark, [
-            _SettingsTile(
-              icon: Icons.hub_rounded,
-              iconColor: const Color(0xFF6366F1),
-              title: '站点与组合',
-              subtitle: _blogSource.currentScopeLabel,
-              onTap: () {
-                HapticFeedback.lightImpact();
-                _showSourceManagerSheet();
-              },
-            ),
-            // 🌓 深色模式切换
-            _SettingsTile(
-              icon: _settings.themeModeIcon,
-              iconColor: const Color(0xFF8B5CF6),
-              title: '外观模式',
-              subtitle: _settings.themeModeName,
-              trailing: _buildThemeModeChip(isDark),
-              onTap: () async {
-                HapticFeedback.mediumImpact(); // 触觉反馈
-                await _settings.cycleThemeMode();
-                setState(() {});
-              },
-            ),
-
-            // 🔤 字体大小
-            _SettingsTile(
-              icon: Icons.text_fields_rounded,
-              iconColor: const Color(0xFF3B82F6),
-              title: '阅读字体',
-              subtitle: _settings.fontScaleName,
-              trailing: _buildFontScaleSlider(isDark),
-              onTap: null,
-            ),
-          ]),
-        ),
-
-        const SizedBox(height: 12),
-
-        // ===== 功能区域（滑入动画） =====
-        _buildAnimatedEntry(
-          delay: 0.35,
-          slideOffset: const Offset(-0.1, 0),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-            child: Text(
-              '功能',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-                color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
-              ),
-            ),
-          ),
-        ),
-
-        _buildAnimatedEntry(
-          delay: 0.4,
-          child: _buildSettingsCard(isDark, [
-            // 🌐 访问博客
-            _SettingsTile(
-              icon: Icons.language_rounded,
-              iconColor: const Color(0xFF10B981),
-              title: '访问博客网站',
-              subtitle: _blogSource.currentScopeLabel,
-              onTap: () async {
-                HapticFeedback.lightImpact();
-                final url = Uri.parse(_blogSource.currentSource);
-                try {
-                  await launchUrl(url, mode: LaunchMode.externalApplication);
-                } catch (_) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('无法打开浏览器'),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    );
-                  }
-                }
-              },
-            ),
-
-            // 🗑️ 清除缓存
-            _SettingsTile(
-              icon: Icons.cleaning_services_rounded,
-              iconColor: const Color(0xFFF59E0B),
-              title: '清除缓存',
-              subtitle: '清除文章缓存和图片缓存',
-              onTap: () {
-                HapticFeedback.lightImpact();
-                _showClearCacheDialog(isDark);
-              },
-            ),
-
-            // 🗑️ 重置全部
-            _SettingsTile(
-              icon: Icons.restart_alt_rounded,
-              iconColor: const Color(0xFFEF4444),
-              title: '重置所有数据',
-              subtitle: '清除收藏、点赞和设置',
-              onTap: () {
-                HapticFeedback.heavyImpact();
-                _showResetDialog(isDark);
-              },
-            ),
-          ]),
-        ),
-
-        const SizedBox(height: 12),
-
-        // ===== 关于区域（滑入动画） =====
-        _buildAnimatedEntry(
-          delay: 0.5,
-          slideOffset: const Offset(-0.1, 0),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-            child: Text(
-              '关于',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-                color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
-              ),
-            ),
-          ),
-        ),
-
-        _buildAnimatedEntry(
-          delay: 0.55,
-          child: _buildSettingsCard(isDark, [
-            _SettingsTile(
-              icon: Icons.info_outline_rounded,
-              iconColor: const Color(0xFF6366F1),
-              title: '关于 Nishiki Blog',
-              subtitle: 'v1.0.0 · Flutter 构建',
-              onTap: () {
-                HapticFeedback.lightImpact();
-                _showAboutDialog(isDark);
-              },
-            ),
-          ]),
-        ),
-
-        // 底部 App 版本标注（淡入动画）
-        _buildAnimatedEntry(
-          delay: 0.65,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 24),
-            child: Center(
-              child: Text(
-                'Nishiki 用 💙 制作',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDark
-                      ? AppTheme.darkModeSecondary.withValues(alpha: 0.6)
-                      : AppTheme.lightText.withValues(alpha: 0.5),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 统计数据单项（带计数动画 + 点击弹跳）
-  Widget _buildAnimatedStatItem({
-    required IconData icon,
-    required String label,
-    required int count,
-    required Color color,
-    required bool isDark,
-    required VoidCallback onTap,
-  }) {
-    return Expanded(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.0, end: count.toDouble()),
-        duration: const Duration(milliseconds: 1200),
-        curve: Curves.easeOutCubic,
-        builder: (context, animatedCount, child) {
-          return InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(icon, size: 20, color: color),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '${animatedCount.toInt()}',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark
-                          ? AppTheme.darkModeSecondary
-                          : AppTheme.lightText,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  /// 通用入场动画包装器（淡入 + 上滑/侧滑）
-  Widget _buildAnimatedEntry({
-    required double delay,
-    required Widget child,
-    Offset slideOffset = const Offset(0, 0.05), // 默认从下方轻微滑入
-  }) {
-    // 计算该元素的区间动画（带延迟的交错效果）
-    final begin = delay;
-    final end = (delay + 0.4).clamp(0.0, 1.0);
-
-    return AnimatedBuilder(
-      animation: _profileEnterCtrl,
-      builder: (context, _) {
-        final curvedValue = Curves.easeOutCubic.transform(
-          ((_profileEnterCtrl.value - begin) / (end - begin)).clamp(0.0, 1.0),
-        );
-        return Opacity(
-          opacity: curvedValue,
-          child: FractionalTranslation(
-            translation: Offset(
-              slideOffset.dx * (1 - curvedValue),
-              slideOffset.dy * (1 - curvedValue),
-            ),
-            child: child,
-          ),
-        );
-      },
-    );
-  }
-
-  /// 构建设置卡片容器（包含多个设置项）
-  Widget _buildSettingsCard(bool isDark, List<_SettingsTile> tiles) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Container(
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.cardDark : AppTheme.cardLight,
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : AppTheme.dividerStrong.withValues(alpha: 0.65),
-          ),
-          boxShadow: isDark ? null : AppTheme.softShadow,
-        ),
-        child: Column(
-          children: [
-            for (int i = 0; i < tiles.length; i++) ...[
-              _buildSettingsTileWidget(tiles[i], isDark),
-              if (i < tiles.length - 1)
-                Padding(
-                  padding: const EdgeInsets.only(left: 60),
-                  child: Divider(
-                    height: 1,
-                    color: isDark
-                        ? AppTheme.surfaceDark
-                        : AppTheme.dividerColor,
-                  ),
-                ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 渲染单个设置项 Widget（带按压缩放反馈）
-  Widget _buildSettingsTileWidget(_SettingsTile tile, bool isDark) {
-    return _PressableScale(
-      onTap: tile.onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            // 彩色图标容器
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: tile.iconColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(tile.icon, size: 20, color: tile.iconColor),
-            ),
-            const SizedBox(width: 14),
-            // 标题和副标题
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    tile.title,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? AppTheme.darkModeText : AppTheme.darkText,
-                    ),
-                  ),
-                  if (tile.subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      tile.subtitle!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark
-                            ? AppTheme.darkModeSecondary
-                            : AppTheme.lightText,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            // 右侧内容（自定义 trailing 或默认箭头）
-            if (tile.trailing != null)
-              tile.trailing!
-            else if (tile.onTap != null)
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 20,
-                color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 主题模式切换 Chip（带旋转过渡动画）
-  Widget _buildThemeModeChip(bool isDark) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(scale: animation, child: child),
-        );
-      },
-      child: Container(
-        key: ValueKey(_settings.themeModeName), // 切换时触发动画
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: isDark
-              ? AppTheme.primaryColor.withValues(alpha: 0.15)
-              : AppTheme.primaryLight,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _settings.themeModeIcon,
-              size: 14,
-              color: AppTheme.primaryColor,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              _settings.themeModeName,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.primaryColor,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 字体大小滑块（带触觉反馈 + 字号预览动画）
-  Widget _buildProfileBadge({required IconData icon, required String label}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: Colors.white),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFontScaleSlider(bool isDark) {
-    return SizedBox(
-      width: 130,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 左侧小 A — 根据当前值动态缩放
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
-            style: TextStyle(
-              fontSize: 11 * (_settings.fontScale.value < 1.0 ? 1.1 : 0.9),
-              fontWeight: FontWeight.w600,
-              color: _settings.fontScale.value <= 0.9
-                  ? AppTheme.primaryColor
-                  : (isDark ? AppTheme.darkModeText : AppTheme.darkText),
-            ),
-            child: const Text('A'),
-          ),
-          Expanded(
-            child: SliderTheme(
-              data: SliderThemeData(
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-                activeTrackColor: AppTheme.primaryColor,
-                inactiveTrackColor: isDark
-                    ? AppTheme.surfaceDark
-                    : AppTheme.dividerColor,
-                thumbColor: AppTheme.primaryColor,
-                overlayColor: AppTheme.primaryColor.withValues(alpha: 0.1),
-              ),
-              child: Slider(
-                value: _settings.fontScale.value,
-                min: 0.8,
-                max: 1.4,
-                divisions: 3,
-                onChanged: (value) async {
-                  // 只在到达刻度点时触发触觉反馈
-                  final oldStep = (_settings.fontScale.value * 5).round();
-                  final newStep = (value * 5).round();
-                  if (oldStep != newStep) {
-                    HapticFeedback.selectionClick();
-                  }
-                  await _settings.setFontScale(value);
-                  setState(() {});
-                },
-              ),
-            ),
-          ),
-          // 右侧大 A — 根据当前值动态缩放
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
-            style: TextStyle(
-              fontSize: 16 * (_settings.fontScale.value > 1.2 ? 1.1 : 0.9),
-              fontWeight: FontWeight.w700,
-              color: _settings.fontScale.value >= 1.3
-                  ? AppTheme.primaryColor
-                  : (isDark ? AppTheme.darkModeText : AppTheme.darkText),
-            ),
-            child: const Text('A'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 清除缓存对话框
-  void _showClearCacheDialog(bool isDark) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('清除缓存？'),
-        content: const Text('将清除文章缓存和图片缓存。你的收藏和点赞数据不会受到影响。'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('✅ 缓存已清除'),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              );
-            },
-            child: const Text('清除'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 重置全部数据对话框
-  void _showResetDialog(bool isDark) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('⚠️ 重置所有数据？'),
-        content: const Text('这将清除你的所有收藏、点赞、阅读记录和设置。\n\n此操作不可逆！'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _settings.clearAllData();
-              await _bookmarkService.init(); // 重新初始化（空数据）
-              if (mounted) {
-                setState(() {
-                  _savedPosts = const [];
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('✅ 所有数据已重置'),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                );
-              }
-            },
-            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-            child: const Text('确认重置'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 关于应用对话框
-  void _showAboutDialog(bool isDark) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            // App Icon
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                gradient: AppTheme.heroGradient,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryColor.withValues(alpha: 0.3),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: const Center(
-                child: Text(
-                  'N',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Nishiki Blog',
-              style: Theme.of(
-                ctx,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'v1.0.0',
-              style: TextStyle(
-                fontSize: 13,
-                color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '一个精致的 WordPress 博客阅读器，\n使用 Flutter 构建。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.6,
-                color: isDark
-                    ? AppTheme.darkModeSecondary
-                    : AppTheme.mediumText,
-              ),
-            ),
-            const SizedBox(height: 20),
-            // 技术栈标签
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              alignment: WrapAlignment.center,
-              children: [
-                _buildTechChip('Flutter', isDark),
-                _buildTechChip('WordPress API', isDark),
-                _buildTechChip('Material 3', isDark),
-              ],
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-        actions: [
-          Center(
-            child: TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('关闭'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 技术栈标签 Chip
-  Widget _buildTechChip(String label, bool isDark) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: isDark
-            ? AppTheme.primaryColor.withValues(alpha: 0.12)
-            : AppTheme.primaryLight,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.primaryColor,
-        ),
-      ),
-    );
-  }
-
-  void _showSourceManagerSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) {
-        final mergedListenable = Listenable.merge([
-          _blogSource.sourceEntries,
-          _blogSource.groups,
-          _blogSource.mode,
-          _blogSource.selectedGroupId,
-          _blogSource.baseUrl,
-        ]);
-
-        return SafeArea(
-          child: AnimatedBuilder(
-            animation: mergedListenable,
-            builder: (context, _) {
-              final sources = _blogSource.sourceEntries.value;
-              final groups = _blogSource.groups.value;
-
-              return SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  8,
-                  20,
-                  24 + MediaQuery.of(context).viewInsets.bottom,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '站点与组合',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '当前范围：${_blogSource.currentScopeLabel}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 16),
-                    SegmentedButton<BlogSourceMode>(
-                      segments: const [
-                        ButtonSegment(
-                          value: BlogSourceMode.single,
-                          icon: Icon(Icons.language_rounded),
-                          label: Text('单站点'),
-                        ),
-                        ButtonSegment(
-                          value: BlogSourceMode.aggregate,
-                          icon: Icon(Icons.hub_rounded),
-                          label: Text('聚合'),
-                        ),
-                      ],
-                      selected: <BlogSourceMode>{_blogSource.mode.value},
-                      onSelectionChanged: (selection) async {
-                        final nextMode = selection.first;
-                        if (nextMode == BlogSourceMode.aggregate &&
-                            sources.length <= 1) {
-                          _showToast('至少添加两个站点后才能启用聚合');
-                          return;
-                        }
-                        await _blogSource.setMode(nextMode);
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    Text('站点', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    ...sources.map(_buildSourceListTile),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _showAddSourceDialog,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('添加站点'),
-                    ),
-                    const SizedBox(height: 20),
-                    Text('组合', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        _isAggregateMode &&
-                                _blogSource.selectedGroupId.value == null
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      title: const Text('全部站点聚合'),
-                      subtitle: Text('包含 ${sources.length} 个站点'),
-                    ),
-                    ...groups.map(_buildGroupListTile),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: sources.length < 2 ? null : _showGroupDialog,
-                      icon: const Icon(Icons.collections_bookmark_rounded),
-                      label: const Text('创建站点组合'),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSourceListTile(BlogSiteSource source) {
-    final selected =
-        !_isAggregateMode && _blogSource.currentSource == source.baseUrl;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        selected
-            ? Icons.check_circle_rounded
-            : Icons.radio_button_unchecked_rounded,
-        color: Theme.of(context).colorScheme.primary,
-      ),
-      title: Text(source.name),
-      subtitle: Text(source.hostLabel),
-      trailing: PopupMenuButton<String>(
-        onSelected: (value) async {
-          if (value == 'rename') {
-            await _showRenameSourceDialog(source);
-            return;
-          }
-          if (value == 'delete') {
-            try {
-              await _blogSource.removeSource(source.baseUrl);
-            } catch (error) {
-              _showToast(error.toString());
-            }
-          }
-        },
-        itemBuilder: (context) => const [
-          PopupMenuItem(value: 'rename', child: Text('重命名')),
-          PopupMenuItem(value: 'delete', child: Text('删除')),
-        ],
-      ),
-      onTap: () async {
-        await _blogSource.selectSource(source.baseUrl);
-      },
-    );
-  }
-
-  Widget _buildGroupListTile(BlogSiteGroup group) {
-    final selected =
-        _isAggregateMode && _blogSource.selectedGroupId.value == group.id;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        selected
-            ? Icons.check_circle_rounded
-            : Icons.radio_button_unchecked_rounded,
-        color: Theme.of(context).colorScheme.primary,
-      ),
-      title: Text(group.name),
-      subtitle: Text(
-        group.sourceBaseUrls.map(_blogSource.labelForSource).join(' · '),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: PopupMenuButton<String>(
-        onSelected: (value) async {
-          if (value == 'edit') {
-            await _showGroupDialog(group: group);
-            return;
-          }
-          if (value == 'delete') {
-            await _blogSource.deleteGroup(group.id);
-          }
-        },
-        itemBuilder: (context) => const [
-          PopupMenuItem(value: 'edit', child: Text('编辑')),
-          PopupMenuItem(value: 'delete', child: Text('删除')),
-        ],
-      ),
-      onTap: () async {
-        await _blogSource.selectGroup(group.id);
-      },
-    );
-  }
-
-  Future<void> _showAddSourceDialog() async {
-    final nameController = TextEditingController();
-    final urlController = TextEditingController(text: 'https://');
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('添加站点'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: '站点名称'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: urlController,
-              decoration: const InputDecoration(labelText: '站点地址'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              try {
-                await _blogSource.addSource(
-                  urlController.text,
-                  name: nameController.text,
-                );
-                if (ctx.mounted) {
-                  Navigator.of(ctx).pop();
-                }
-              } catch (error) {
-                _showToast(error.toString());
-              }
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showRenameSourceDialog(BlogSiteSource source) async {
-    final controller = TextEditingController(text: source.name);
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('重命名站点'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: '站点名称'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              try {
-                await _blogSource.renameSource(source.baseUrl, controller.text);
-                if (ctx.mounted) {
-                  Navigator.of(ctx).pop();
-                }
-              } catch (error) {
-                _showToast(error.toString());
-              }
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showGroupDialog({BlogSiteGroup? group}) async {
-    final nameController = TextEditingController(text: group?.name ?? '');
-    final selectedSources = <String>{
-      ...?group?.sourceBaseUrls,
-      if (group == null && _blogSource.sourceEntries.value.isNotEmpty)
-        _blogSource.sourceEntries.value.first.baseUrl,
-    };
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(group == null ? '创建站点组合' : '编辑站点组合'),
-              content: SizedBox(
-                width: 420,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextField(
-                        controller: nameController,
-                        decoration: const InputDecoration(labelText: '组合名称'),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '选择站点',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      ..._blogSource.sourceEntries.value.map((source) {
-                        final checked = selectedSources.contains(
-                          source.baseUrl,
-                        );
-                        return CheckboxListTile(
-                          value: checked,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(source.name),
-                          subtitle: Text(source.hostLabel),
-                          onChanged: (value) {
-                            setDialogState(() {
-                              if (value ?? false) {
-                                selectedSources.add(source.baseUrl);
-                              } else {
-                                selectedSources.remove(source.baseUrl);
-                              }
-                            });
-                          },
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    try {
-                      await _blogSource.saveGroup(
-                        id: group?.id,
-                        name: nameController.text,
-                        sourceBaseUrls: selectedSources.toList(),
-                      );
-                      if (ctx.mounted) {
-                        Navigator.of(ctx).pop();
-                      }
-                    } catch (error) {
-                      _showToast(error.toString());
-                    }
-                  },
-                  child: const Text('保存'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showToast(String message) {
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message.replaceFirst('FormatException: ', '')),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _goToTab(int tabIndex) {
-    setState(() => _tabIndex = tabIndex);
-    _syncProfilePulseForTab(tabIndex);
-  }
-}
-
-/// 设置项数据模型
-class _SettingsTile {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String? subtitle;
-  final Widget? trailing;
-  final VoidCallback? onTap;
-
-  const _SettingsTile({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    this.subtitle,
-    this.trailing,
-    this.onTap,
-  });
-}
-
-/// 格式化日期为 "Feb 16" 格式
-String _formatDate(DateTime date) {
-  return '${date.month}月${date.day}日';
-}
-
-/// ================================================================
-/// 按压缩放反馈组件 — 按下时轻微缩小，松开后弹回
-/// 提供类似 iOS 原生的触摸反馈体验
-/// ================================================================
-class _PressableScale extends StatefulWidget {
-  final Widget child;
-  final VoidCallback? onTap;
-
-  const _PressableScale({required this.child, this.onTap});
-
-  @override
-  State<_PressableScale> createState() => _PressableScaleState();
-}
-
-class _PressableScaleState extends State<_PressableScale>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _scaleAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 100),
-      reverseDuration: const Duration(milliseconds: 200),
-    );
-    // 按下缩小到 0.97，松开恢复 1.0
-    _scaleAnim = Tween<double>(
-      begin: 1.0,
-      end: 0.97,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // 如果没有 onTap，不添加手势交互
-    if (widget.onTap == null) {
-      return widget.child;
-    }
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _ctrl.forward(), // 按下 → 缩小
-      onTapUp: (_) {
-        _ctrl.reverse(); // 松开 → 恢复
-        widget.onTap?.call();
-      },
-      onTapCancel: () => _ctrl.reverse(), // 取消 → 恢复
-      child: AnimatedBuilder(
-        animation: _scaleAnim,
-        builder: (context, child) {
-          return Transform.scale(scale: _scaleAnim.value, child: child);
-        },
-        child: widget.child,
-      ),
     );
   }
 }

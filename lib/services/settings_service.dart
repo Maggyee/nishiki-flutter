@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/sync_models.dart';
 import '../models/wp_models.dart';
 import 'blog_source_service.dart';
 import 'local_database_service.dart';
+import 'sync_service.dart';
 
 class SettingsService {
   SettingsService._internal();
@@ -27,6 +29,7 @@ class SettingsService {
   final ValueNotifier<double> fontScale = ValueNotifier(1.0);
   final LocalDatabaseService _databaseService = LocalDatabaseService();
   final BlogSourceService _blogSource = BlogSourceService();
+  SyncService get _syncService => SyncService();
 
   int _readCount = 0;
   int get readCount => _readCount;
@@ -63,6 +66,12 @@ class SettingsService {
     _loadedSourceBaseUrl = currentSource;
   }
 
+  Future<void> reload() async {
+    _initialized = false;
+    _loadedSourceBaseUrl = null;
+    await init();
+  }
+
   Future<void> cycleThemeMode() async {
     final nextMode = switch (themeMode.value) {
       ThemeMode.system => ThemeMode.light,
@@ -76,12 +85,14 @@ class SettingsService {
     themeMode.value = mode;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_themeModeKey, mode.index);
+    await _enqueuePreferenceChange();
   }
 
   Future<void> setFontScale(double scale) async {
     fontScale.value = scale.clamp(0.8, 1.4);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_fontScaleKey, fontScale.value);
+    await _enqueuePreferenceChange();
   }
 
   Future<void> markAsRead(WpPost post, {double progress = 1.0}) async {
@@ -115,6 +126,19 @@ class SettingsService {
       if (isNewRead) {
         _readCount = _readPostKeys.length;
       }
+      await _syncService.enqueueChange(
+        SyncChange(
+          entityType: 'reading_progress',
+          entityId: '${post.sourceBaseUrl}:${post.id}',
+          data: {
+            'sourceBaseUrl': post.sourceBaseUrl,
+            'postId': post.id,
+            'progress': normalizedProgress,
+            'lastReadAt': DateTime.now().toIso8601String(),
+            'updatedAt': DateTime.now().toIso8601String(),
+          },
+        ),
+      );
       return;
     }
 
@@ -387,6 +411,20 @@ class SettingsService {
       return int.tryParse(key);
     }
     return int.tryParse(key.substring(separatorIndex + 2));
+  }
+
+  Future<void> _enqueuePreferenceChange() async {
+    await _syncService.enqueueChange(
+      SyncChange(
+        entityType: 'preference',
+        data: {
+          'themeMode': themeMode.value.name,
+          'fontScale': fontScale.value,
+          'selectedSourceBaseUrl': _currentSourceBaseUrl,
+          'updatedAt': DateTime.now().toIso8601String(),
+        },
+      ),
+    );
   }
 
   String get themeModeName => switch (themeMode.value) {
