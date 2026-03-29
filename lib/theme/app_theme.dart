@@ -27,8 +27,6 @@ class AppTheme {
     'Source Han Sans SC',
     'Noto Sans SC',
     'Noto Sans JP',
-    'NotoSansCJKjpFallback',
-    'NotoEmojiFallback',
     'SimHei',
     'Arial Unicode MS',
     'sans-serif',

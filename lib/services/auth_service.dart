@@ -7,9 +7,15 @@ import '../config.dart';
 import '../models/auth_models.dart';
 
 class AuthServiceException implements Exception {
-  const AuthServiceException(this.message);
+  const AuthServiceException(
+    this.message, {
+    this.statusCode,
+    this.code,
+  });
 
   final String message;
+  final int? statusCode;
+  final String? code;
 
   @override
   String toString() => message;
@@ -101,6 +107,45 @@ class AuthService {
     _currentUser = null;
   }
 
+  Future<bool> ensureValidSession() async {
+    if (!isSignedIn) {
+      return false;
+    }
+
+    try {
+      final payload = await authorizedGetJson('/api/me');
+      final user = payload['user'];
+      if (user is Map<String, dynamic>) {
+        final nextUser = CurrentUser.fromJson(user);
+        final prefs = await SharedPreferences.getInstance();
+        _currentUser = nextUser;
+        await prefs.setString(
+          _userJsonKey,
+          jsonEncode({
+            'id': nextUser.id,
+            'email': nextUser.email,
+            'createdAt': nextUser.createdAt.toIso8601String(),
+            'updatedAt': nextUser.updatedAt.toIso8601String(),
+            'emailVerifiedAt': nextUser.emailVerifiedAt?.toIso8601String(),
+          }),
+        );
+      }
+      return true;
+    } on AuthServiceException catch (error) {
+      if (error.statusCode != 401) {
+        rethrow;
+      }
+    }
+
+    try {
+      await refreshSession();
+      return true;
+    } on AuthServiceException {
+      await clearSession();
+      return false;
+    }
+  }
+
   Future<Map<String, dynamic>> authorizedPostJson(
     String path,
     Map<String, dynamic> body,
@@ -184,6 +229,8 @@ class AuthService {
       throw AuthServiceException(
         (error?['message'] as String?) ??
             'Request failed: ${response.statusCode}',
+        statusCode: response.statusCode,
+        code: error?['code'] as String?,
       );
     }
 

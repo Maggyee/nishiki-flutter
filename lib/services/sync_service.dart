@@ -153,18 +153,27 @@ class SyncService {
     }
 
     final token = authorization.replaceFirst('Bearer ', '').trim();
-    await _channelSub?.cancel();
-    await _channel?.sink.close();
-    _channel = WebSocketChannel.connect(AppConfig.resolveWebSocketUri(token));
-    _channelSub = _channel!.stream.listen((event) async {
-      try {
-        final decoded = jsonDecode(event as String) as Map<String, dynamic>;
-        final eventName = decoded['event'] as String? ?? '';
-        if (eventName == 'sync.updated' || eventName == 'preferences.updated') {
-          await pullChanges();
-        }
-      } catch (_) {}
-    });
+    try {
+      await _channelSub?.cancel();
+      await _channel?.sink.close();
+      _channel = WebSocketChannel.connect(AppConfig.resolveWebSocketUri(token));
+      _channelSub = _channel!.stream.listen(
+        (event) async {
+          try {
+            final decoded = jsonDecode(event as String) as Map<String, dynamic>;
+            final eventName = decoded['event'] as String? ?? '';
+            if (eventName == 'sync.updated' || eventName == 'preferences.updated') {
+              await pullChanges();
+            }
+          } catch (_) {}
+        },
+        onError: (_) {},
+        onDone: () {},
+        cancelOnError: false,
+      );
+    } catch (_) {
+      await disposeRealtime();
+    }
   }
 
   Future<void> disposeRealtime() async {
@@ -200,6 +209,10 @@ class SyncService {
             'id': source.baseUrl,
             'baseUrl': source.baseUrl,
             'name': source.name,
+            // RSS 扩展字段
+            'sourceType': source.sourceType,
+            if (source.feedUrl != null) 'feedUrl': source.feedUrl,
+            if (source.siteUrl != null) 'siteUrl': source.siteUrl,
             'createdAt': source.createdAt.toIso8601String(),
             'updatedAt': source.updatedAt.toIso8601String(),
           },
@@ -391,6 +404,10 @@ class SyncService {
         await txn.insert(LocalDatabaseService.siteSourcesTable, {
           'base_url': source['baseUrl'],
           'name': source['name'],
+          // RSS 扩展字段：后端返回时带，旧后端不返回则用默认值
+          'source_type': (source['sourceType'] as String?) ?? 'wordpress',
+          'feed_url': source['feedUrl'] as String?,
+          'site_url': source['siteUrl'] as String?,
           'created_at': source['createdAt'],
           'updated_at': source['updatedAt'],
         });

@@ -95,8 +95,14 @@ class BlogSourceLocalDataSource {
     return (sources: loadedSources, groups: loadedGroups);
   }
 
-  /// 插入或更新站点记录
-  Future<void> upsertSourceInDb(String baseUrl, String name) async {
+  /// 插入或更新站点记录（支持 RSS 新字段）
+  Future<void> upsertSourceInDb(
+    String baseUrl,
+    String name, {
+    String sourceType = 'wordpress',
+    String? feedUrl,
+    String? siteUrl,
+  }) async {
     final db = await _databaseService.database;
     if (db == null) return;
 
@@ -118,6 +124,9 @@ class BlogSourceLocalDataSource {
                   ? existing.first['name']
                   : name
             : name,
+        'source_type': sourceType,
+        'feed_url': feedUrl,
+        'site_url': siteUrl,
         'created_at': existing.isNotEmpty
             ? existing.first['created_at'] as String
             : now.toIso8601String(),

@@ -78,23 +78,67 @@ class ArticleDetailContent extends StatelessWidget {
                   color: isDark ? AppTheme.surfaceDark : AppTheme.dividerColor,
                 ),
                 const SizedBox(height: 24),
-                SelectionArea(
-                  child: Html(
+                ClipRect(
+                  child: SelectionArea(
+                    child: Html(
                     data: post.contentHtml,
                     style: _buildHtmlStyles(isDark, fontScale),
                     extensions: [
-                      ImageExtension(
-                        builder: (context) => _HtmlNetworkImage(
-                          src: context.attributes['src'] ?? '',
-                          alt: context.attributes['alt'] ?? '',
-                          width:
-                              context.style?.width?.value ??
-                              _tryParseDimension(context.attributes['width']),
-                          height:
-                              context.style?.height?.value ??
-                              _tryParseDimension(context.attributes['height']),
-                          isDark: isDark,
-                        ),
+                      // 接管 img — 绕过 flutter_html 的 HTML 尺寸约束
+                      TagExtension(
+                        tagsToExtend: {'img'},
+                        builder: (context) {
+                          final src = context.attributes['src'] ?? '';
+                          final alt = context.attributes['alt'] ?? '';
+                          return _HtmlNetworkImage(
+                            src: src,
+                            alt: alt,
+                            isDark: isDark,
+                          );
+                        },
+                      ),
+                      // 接管 figure — 防止 WordPress 的 figure inline style
+                      // 给子 img 施加过小的宽度约束
+                      TagExtension(
+                        tagsToExtend: {'figure'},
+                        builder: (context) {
+                          // 找 figure 内的 img 元素
+                          final imgEl =
+                              context.element?.querySelector('img');
+                          if (imgEl == null) return const SizedBox.shrink();
+                          final src = imgEl.attributes['src'] ?? '';
+                          final alt = imgEl.attributes['alt'] ?? '';
+                          // figcaption 文字
+                          final caption = context.element
+                              ?.querySelector('figcaption')
+                              ?.text
+                              .trim();
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _HtmlNetworkImage(
+                                src: src,
+                                alt: alt,
+                                isDark: isDark,
+                              ),
+                              if (caption != null && caption.isNotEmpty)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.only(top: 4, bottom: 8),
+                                  child: Text(
+                                    caption,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark
+                                          ? AppTheme.darkModeSecondary
+                                          : AppTheme.lightText,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
                       ),
                       TagExtension(
                         tagsToExtend: {'pre'},
@@ -124,6 +168,7 @@ class ArticleDetailContent extends StatelessWidget {
                       HapticFeedback.selectionClick();
                       onOpenInBrowser(url);
                     },
+                    ),
                   ),
                 ),
                 const SizedBox(height: 40),
@@ -322,16 +367,15 @@ class _HtmlNetworkImage extends StatelessWidget {
   const _HtmlNetworkImage({
     required this.src,
     required this.alt,
-    required this.width,
-    required this.height,
     required this.isDark,
   });
 
   final String src;
   final String alt;
-  final double? width;
-  final double? height;
   final bool isDark;
+
+  /// 生成唯一的 Hero tag
+  String get _heroTag => 'article_image_$src';
 
   @override
   Widget build(BuildContext context) {
@@ -341,73 +385,178 @@ class _HtmlNetworkImage extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxWidth = constraints.maxWidth.isFinite
-            ? constraints.maxWidth
-            : MediaQuery.of(context).size.width;
-        final resolvedWidth = width == null || width!.isNaN || width! <= 0
-            ? maxWidth
-            : width!.clamp(0, maxWidth).toDouble();
-        final resolvedHeight = height == null || height!.isNaN || height! <= 0
-            ? null
-            : height;
-        final maxImageHeight = MediaQuery.of(context).size.height * 0.58;
+        // 用 MediaQuery 获取屏幕宽度再减去文章内边距（各 20px）
+        // 不依赖 constraints，因为父级 figure/div 可能携带错误的宽度约束
+        final screenWidth = MediaQuery.of(context).size.width;
+        final articlePadding = 40.0; // 左右各 20px
+        final maxWidth = screenWidth - articlePadding;
 
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.cardDark : Colors.white,
-            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-            border: Border.all(
-              color: isDark ? AppTheme.surfaceMutedDark : AppTheme.dividerColor,
-            ),
-            boxShadow: isDark ? null : AppTheme.softShadow,
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: maxWidth,
-              maxHeight: resolvedHeight ?? maxImageHeight,
-            ),
-            child: Image.network(
-              src,
-              width: resolvedWidth,
-              height: resolvedHeight,
-              fit: BoxFit.contain,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) {
-                  return child;
-                }
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: GestureDetector(
+            onTap: () => _showImagePreview(context),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+              child: Hero(
+                tag: _heroTag,
+                child: SizedBox(
+                  // 填满可用宽度，与文字区域对齐
+                  width: maxWidth,
+                  child: Image.network(
+                    src,
+                    width: maxWidth,
+                    // 等比例缩放填满宽度，高度自适应
+                    fit: BoxFit.fitWidth,
+                    alignment: Alignment.topCenter,
+                    filterQuality: FilterQuality.high,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) {
+                        return child;
+                      }
 
-                return _HtmlImagePlaceholder(
-                  width: resolvedWidth,
-                  height: resolvedHeight ?? 220,
-                  isDark: isDark,
-                  child: const CircularProgressIndicator(strokeWidth: 2),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return _HtmlImagePlaceholder(
-                  width: resolvedWidth,
-                  height: resolvedHeight ?? 140,
-                  isDark: isDark,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      alt.isNotEmpty ? alt : '图片加载失败',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: isDark
-                            ? AppTheme.darkModeSecondary
-                            : AppTheme.mediumText,
-                      ),
-                    ),
+                      return _HtmlImagePlaceholder(
+                        width: maxWidth,
+                        height: 200,
+                        isDark: isDark,
+                        child:
+                            const CircularProgressIndicator(strokeWidth: 2),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      return _HtmlImagePlaceholder(
+                        width: maxWidth,
+                        height: 120,
+                        isDark: isDark,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.broken_image_outlined,
+                                size: 28,
+                                color: isDark
+                                    ? AppTheme.darkModeSecondary
+                                    : AppTheme.lightText,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                alt.isNotEmpty ? alt : '图片加载失败',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? AppTheme.darkModeSecondary
+                                      : AppTheme.mediumText,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  /// 全屏图片预览 — Hero 动画 + 双指缩放 + 点击关闭
+  void _showImagePreview(BuildContext context) {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.black.withValues(alpha: 0.92),
+        barrierDismissible: true,
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 250),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return FadeTransition(
+            opacity: animation,
+            child: _FullScreenImageViewer(
+              src: src,
+              alt: alt,
+              heroTag: _heroTag,
+              isDark: isDark,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 全屏图片查看器 — 支持双指缩放、拖拽关闭
+class _FullScreenImageViewer extends StatelessWidget {
+  const _FullScreenImageViewer({
+    required this.src,
+    required this.alt,
+    required this.heroTag,
+    required this.isDark,
+  });
+
+  final String src;
+  final String alt;
+  final String heroTag;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      // 点击空白区域关闭
+      onTap: () => Navigator.of(context).pop(),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Stack(
+          children: [
+            // 图片主体 — 支持双指缩放和平移
+            Center(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 5.0,
+                child: Hero(
+                  tag: heroTag,
+                  child: Image.network(
+                    src,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppTheme.cardDark : Colors.white,
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusLg),
+                        ),
+                        child: Text(
+                          alt.isNotEmpty ? alt : '图片加载失败',
+                          textAlign: TextAlign.center,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            // 关闭按钮
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 12,
+              child: IconButton.filledTonal(
+                onPressed: () => Navigator.of(context).pop(),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -714,7 +863,22 @@ Map<String, Style> _buildHtmlStyles(bool isDark, double fontScale) {
       color: AppTheme.primaryColor,
       textDecoration: TextDecoration.none,
     ),
-    'img': Style(margin: Margins.only(top: 16, bottom: 16)),
+    // 图片强制不超过容器宽度
+    'img': Style(
+      margin: Margins.only(top: 16, bottom: 16),
+      width: Width(100, Unit.percent),
+    ),
+    // WordPress 用 figure 包裹图片，也需要约束
+    'figure': Style(
+      margin: Margins.only(top: 8, bottom: 8),
+      width: Width(100, Unit.percent),
+    ),
+    'figcaption': Style(
+      margin: Margins.only(top: 4),
+      fontSize: FontSize(13 * fontScale),
+      textAlign: TextAlign.center,
+      color: isDark ? AppTheme.darkModeSecondary : AppTheme.lightText,
+    ),
     'ul': Style(margin: Margins.only(bottom: 16)),
     'ol': Style(margin: Margins.only(bottom: 16)),
     'li': Style(
@@ -737,14 +901,6 @@ Map<String, Style> _buildHtmlStyles(bool isDark, double fontScale) {
   };
 }
 
-double? _tryParseDimension(String? raw) {
-  if (raw == null || raw.trim().isEmpty) {
-    return null;
-  }
-
-  final value = raw.trim().replaceAll('px', '');
-  return double.tryParse(value);
-}
 
 String _extractCodeBlockText(html.Element? element) {
   if (element == null) {

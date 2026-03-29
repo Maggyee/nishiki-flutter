@@ -7,7 +7,7 @@ import '../config.dart';
 import '../models/wp_models.dart';
 import '../services/bookmark_service.dart';
 import '../services/settings_service.dart';
-import '../services/wp_api_service.dart';
+import '../services/content_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/article_detail/article_detail_action_bar.dart';
 import '../widgets/article_detail/article_detail_ai_fab.dart';
@@ -35,7 +35,7 @@ class ArticleDetailScreen extends StatefulWidget {
 
 class _ArticleDetailScreenState extends State<ArticleDetailScreen>
     with TickerProviderStateMixin {
-  final _api = WpApiService();
+  final _api = ContentApiService();
   // 滚动控制器 — 用于计算阅读进度
   final _scrollController = ScrollController();
   final ValueNotifier<double> _readProgress = ValueNotifier<double>(0.0);

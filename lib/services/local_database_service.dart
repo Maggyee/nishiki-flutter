@@ -13,7 +13,7 @@ class LocalDatabaseService {
   factory LocalDatabaseService() => _instance;
 
   static const String databaseName = 'nishiki_local.db';
-  static const int databaseVersion = 6;
+  static const int databaseVersion = 7;
 
   static const String postsTable = 'posts';
   static const String categoriesTable = 'categories';
@@ -72,10 +72,14 @@ class LocalDatabaseService {
   }
 
   Future<void> _onConfigure(Database db) async {
-    await db.execute('PRAGMA foreign_keys = ON');
-    await db.execute('PRAGMA journal_mode = WAL');
-    await db.execute('PRAGMA synchronous = NORMAL');
-    await db.execute('PRAGMA temp_store = MEMORY');
+    await _setPragma(db, 'foreign_keys', 'ON');
+    await _setPragma(db, 'journal_mode', 'WAL');
+    await _setPragma(db, 'synchronous', 'NORMAL');
+    await _setPragma(db, 'temp_store', 'MEMORY');
+  }
+
+  Future<void> _setPragma(Database db, String name, String value) async {
+    await db.rawQuery('PRAGMA $name = $value');
   }
 
   Future<void> _createPostCacheTables(Database db) async {
@@ -237,6 +241,21 @@ class LocalDatabaseService {
     if (oldVersion < 6) {
       await _createSyncQueueTable(db);
     }
+    if (oldVersion < 7) {
+      // 新增 RSS 源元数据字段
+      // SQLite 不支持 NOT NULL 且无默认値的 ALTER TABLE
+      // source_type 有默认値，历史数据自动回填 'wordpress'
+      await db.execute(
+        "ALTER TABLE $siteSourcesTable ADD COLUMN source_type TEXT NOT NULL DEFAULT 'wordpress'",
+      );
+      // feed_url 和 site_url 允许为空
+      await db.execute(
+        'ALTER TABLE $siteSourcesTable ADD COLUMN feed_url TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE $siteSourcesTable ADD COLUMN site_url TEXT',
+      );
+    }
   }
 
   Future<void> _createSourceManagementTables(Database db) async {
@@ -244,6 +263,9 @@ class LocalDatabaseService {
       CREATE TABLE IF NOT EXISTS $siteSourcesTable (
         base_url TEXT NOT NULL PRIMARY KEY,
         name TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'wordpress',
+        feed_url TEXT,
+        site_url TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )

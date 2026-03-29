@@ -55,6 +55,7 @@ dependencies:
   flutter_cache_manager: ^3.4.1
   google_generative_ai: ^0.4.6
   web_socket_channel: ^3.0.1
+  xml: ^6.5.0
 
 dev_dependencies:
   flutter_test:
@@ -86,12 +87,6 @@ flutter:
     - family: NotoSansSCSubset
       fonts:
         - asset: assets/fonts/NotoSansSCSubset-Regular.otf
-    - family: NotoSansCJKjpFallback
-      fonts:
-        - asset: assets/fonts/NotoSansCJKjp-Regular.otf
-    - family: NotoEmojiFallback
-      fonts:
-        - asset: assets/fonts/NotoColorEmoji.ttf
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

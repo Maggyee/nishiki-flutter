@@ -1,8 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'config.dart';
-import 'home_screen.dart';
+import 'screens/home_screen.dart';
 import 'services/blog_source_service.dart';
 import 'services/bookmark_service.dart';
 import 'services/auth_service.dart';
@@ -21,19 +23,51 @@ void main() async {
     ),
   );
 
-  await LocalDatabaseService().init();
-  await AuthService().init();
-  await BlogSourceService().init();
-  await BookmarkService().init();
-  await SettingsService().init();
-  await SyncService().init();
-  if (AuthService().isSignedIn) {
-    await SyncService().bootstrap();
-    await SyncService().pushPendingChanges();
-    await SyncService().connectRealtime();
-  }
-
   runApp(const NishikiApp());
+  unawaited(_bootstrapServices());
+}
+
+Future<void> _bootstrapServices() async {
+  try {
+    await LocalDatabaseService().init();
+    await AuthService().init();
+    await BlogSourceService().init();
+    await BookmarkService().init();
+    await SettingsService().init();
+
+    final authService = AuthService();
+    final syncService = SyncService();
+    await syncService.init();
+    unawaited(_startSyncSafely(authService, syncService));
+  } catch (error, stackTrace) {
+    debugPrint('Startup bootstrap failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+}
+
+Future<void> _startSyncSafely(
+  AuthService authService,
+  SyncService syncService,
+) async {
+  try {
+    final sessionReady = await authService.ensureValidSession();
+    if (!sessionReady) {
+      await syncService.disposeRealtime();
+      return;
+    }
+
+    await syncService.bootstrap();
+    await syncService.pushPendingChanges();
+    await syncService.connectRealtime();
+  } on AuthServiceException catch (error) {
+    if (error.statusCode == 401) {
+      await authService.clearSession();
+      await syncService.disposeRealtime();
+      return;
+    }
+  } catch (_) {
+    await syncService.disposeRealtime();
+  }
 }
 
 class NishikiApp extends StatefulWidget {

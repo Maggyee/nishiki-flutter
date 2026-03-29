@@ -13,6 +13,7 @@ import '../data/blog_source_local_data_source.dart';
 import '../models/blog_source_models.dart';
 import '../models/sync_models.dart';
 import 'local_database_service.dart';
+import 'source_detector.dart';
 import 'sync_service.dart';
 
 // 重新导出模型类，让现有 import 保持兼容
@@ -155,12 +156,30 @@ class BlogSourceService {
     await _enqueuePreferenceChange();
   }
 
-  /// 添加新站点
-  Future<void> addSource(String url, {String? name}) async {
+  /// 添加新站点（自动探测类型）
+  Future<void> addSource(
+    String url, {
+    String? name,
+    SourceDetectResult? detectResult,
+  }) async {
     final normalized = _validatedUrl(url);
-    await _upsertSource(normalized, name: name);
-    await _persistSelectionState();
-    await _enqueueSourceChange(normalized);
+
+    // 如果调用方已提供探测结果就直接用，否则直接添加为 WordPress
+    if (detectResult != null) {
+      await _upsertSource(
+        detectResult.baseUrl,
+        name: name ?? detectResult.siteName,
+        sourceType: detectResult.sourceType,
+        feedUrl: detectResult.feedUrl,
+        siteUrl: detectResult.siteUrl,
+      );
+      await _persistSelectionState();
+      await _enqueueSourceChange(detectResult.baseUrl);
+    } else {
+      await _upsertSource(normalized, name: name);
+      await _persistSelectionState();
+      await _enqueueSourceChange(normalized);
+    }
   }
 
   /// 重命名站点
@@ -475,14 +494,26 @@ class BlogSourceService {
     }
   }
 
-  /// 插入或更新站点
-  Future<void> _upsertSource(String baseUrl, {String? name}) async {
+  /// 插入或更新站点（支持 RSS 新字段）
+  Future<void> _upsertSource(
+    String baseUrl, {
+    String? name,
+    String sourceType = 'wordpress',
+    String? feedUrl,
+    String? siteUrl,
+  }) async {
     final effectiveName = (name?.trim().isNotEmpty ?? false)
         ? name!.trim()
         : _dataSource.defaultSourceName(baseUrl);
 
     if (_dataSource.useSqlite) {
-      await _dataSource.upsertSourceInDb(baseUrl, effectiveName);
+      await _dataSource.upsertSourceInDb(
+        baseUrl,
+        effectiveName,
+        sourceType: sourceType,
+        feedUrl: feedUrl,
+        siteUrl: siteUrl,
+      );
       await _reloadFromDatabase();
       return;
     }
@@ -498,6 +529,9 @@ class BlogSourceService {
       nextSources[existingIndex] = BlogSiteSource(
         baseUrl: existing.baseUrl,
         name: existing.name,
+        sourceType: sourceType,
+        feedUrl: feedUrl,
+        siteUrl: siteUrl,
         createdAt: existing.createdAt,
         updatedAt: now,
       );
@@ -506,6 +540,9 @@ class BlogSourceService {
         BlogSiteSource(
           baseUrl: baseUrl,
           name: effectiveName,
+          sourceType: sourceType,
+          feedUrl: feedUrl,
+          siteUrl: siteUrl,
           createdAt: now,
           updatedAt: now,
         ),
@@ -591,6 +628,9 @@ class BlogSourceService {
           'id': sourceBaseUrl,
           'baseUrl': sourceBaseUrl,
           'name': source?.name ?? _dataSource.defaultSourceName(sourceBaseUrl),
+          'sourceType': source?.sourceType ?? 'wordpress',
+          if (source?.feedUrl != null) 'feedUrl': source!.feedUrl,
+          if (source?.siteUrl != null) 'siteUrl': source!.siteUrl,
           'createdAt':
               source?.createdAt.toIso8601String() ??
               DateTime.now().toIso8601String(),

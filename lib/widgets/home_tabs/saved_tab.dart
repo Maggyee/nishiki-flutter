@@ -4,7 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/wp_models.dart';
 import '../../screens/article_detail_screen.dart';
 import '../../services/bookmark_service.dart';
-import '../../services/wp_api_service.dart';
+import '../../services/content_api_service.dart';
 import '../../theme/app_theme.dart';
 
 /// 收藏 Tab — 收藏文章列表（支持滑动取消收藏）
@@ -227,7 +227,7 @@ class _SavedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bookmarkService = BookmarkService();
-    final api = WpApiService();
+    final api = ContentApiService();
 
     return Dismissible(
       key: ValueKey('saved_${post.id}'),
@@ -328,7 +328,7 @@ class _SavedCard extends StatelessWidget {
   }
 
   /// 打开收藏文章（如果内容为空则先从网络加载）
-  Future<void> _openSavedPost(BuildContext context, WpApiService api) async {
+  Future<void> _openSavedPost(BuildContext context, ContentApiService api) async {
     if (post.contentHtml.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

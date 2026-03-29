@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/wp_models.dart';
 import '../../screens/article_detail_screen.dart';
-import '../../services/wp_api_service.dart';
+import '../../services/content_api_service.dart';
 import '../../theme/app_theme.dart';
 import '../article_card.dart';
 
@@ -29,7 +29,7 @@ class HomeFeedTab extends StatelessWidget {
   // 错误信息
   final String? error;
   // API 错误详情
-  final WpApiException? apiError;
+  final ContentApiException? apiError;
   // 当前数据源范围标签
   final String scopeLabel;
   // 是否为聚合模式
@@ -58,7 +58,7 @@ class HomeFeedTab extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
-              '来自你 WordPress 站点的最新文章',
+              '来自你订阅源的最新文章',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),

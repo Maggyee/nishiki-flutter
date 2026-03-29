@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/blog_source_service.dart';
+import '../../services/source_detector.dart';
 
 /// 站点与组合管理底部弹窗
 class SourceManagerSheet {
@@ -84,7 +85,7 @@ class SourceManagerSheet {
                     Text('站点', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
 
-                    // 站点列表
+                    // 站点列表（显示源类型图标）
                     ...sources.map((source) => _buildSourceListTile(
                           context, source, blogSource, isAggregateMode)),
                     const SizedBox(height: 12),
@@ -137,7 +138,7 @@ class SourceManagerSheet {
     );
   }
 
-  /// 站点列表项
+  /// 站点列表项（显示源类型图标：WP 或 RSS）
   static Widget _buildSourceListTile(
     BuildContext context,
     BlogSiteSource source,
@@ -146,6 +147,14 @@ class SourceManagerSheet {
   ) {
     final selected =
         !isAggregateMode && blogSource.currentSource == source.baseUrl;
+
+    // 根据源类型选择图标和标签颜色
+    final typeIcon = source.isRss
+        ? Icons.rss_feed_rounded
+        : Icons.language_rounded;
+    final typeLabel = source.isRss ? 'RSS' : 'WP';
+    final typeColor = source.isRss ? Colors.orange : Colors.blue;
+
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Icon(
@@ -154,7 +163,34 @@ class SourceManagerSheet {
             : Icons.radio_button_unchecked_rounded,
         color: Theme.of(context).colorScheme.primary,
       ),
-      title: Text(source.name),
+      title: Row(
+        children: [
+          Expanded(child: Text(source.name)),
+          // 源类型小标签
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: typeColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(typeIcon, size: 12, color: typeColor),
+                const SizedBox(width: 2),
+                Text(
+                  typeLabel,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: typeColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
       subtitle: Text(source.hostLabel),
       trailing: PopupMenuButton<String>(
         onSelected: (value) async {
@@ -166,6 +202,7 @@ class SourceManagerSheet {
             try {
               await blogSource.removeSource(source.baseUrl);
             } catch (error) {
+              if (!context.mounted) return;
               _showToast(context, error.toString());
             }
           }
@@ -225,7 +262,7 @@ class SourceManagerSheet {
     );
   }
 
-  /// 添加站点对话框
+  /// 添加站点对话框（集成 URL 自动探测）
   static Future<void> _showAddSourceDialog(
     BuildContext context,
     BlogSourceService blogSource,
@@ -235,45 +272,146 @@ class SourceManagerSheet {
 
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('添加站点'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: '站点名称'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: urlController,
-              decoration: const InputDecoration(labelText: '站点地址'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              try {
-                await blogSource.addSource(
-                  urlController.text,
-                  name: nameController.text,
-                );
-                if (ctx.mounted) {
-                  Navigator.of(ctx).pop();
-                }
-              } catch (error) {
-                _showToast(context, error.toString());
-              }
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
+      builder: (ctx) {
+        // 使用 StatefulBuilder 管理探测状态
+        bool detecting = false;
+        String? detectError;
+        SourceDetectResult? detectResult;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('添加站点'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: '站点名称（可选）',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: urlController,
+                    decoration: InputDecoration(
+                      labelText: '站点或 RSS 地址',
+                      hintText: 'https://example.com',
+                      helperText: '自动识别 WordPress 或 RSS 源',
+                      errorText: detectError,
+                    ),
+                  ),
+                  // 探测中 loading
+                  if (detecting) ...[
+                    const SizedBox(height: 16),
+                    const Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 12),
+                        Text('正在探测源类型…'),
+                      ],
+                    ),
+                  ],
+                  // 探测成功结果
+                  if (detectResult != null) ...[
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Icon(
+                          detectResult!.isRss
+                              ? Icons.rss_feed_rounded
+                              : Icons.language_rounded,
+                          color: detectResult!.isRss
+                              ? Colors.orange
+                              : Colors.blue,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '识别为 ${detectResult!.isRss ? 'RSS' : 'WordPress'} 源',
+                          style: TextStyle(
+                            color: detectResult!.isRss
+                                ? Colors.orange
+                                : Colors.blue,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: detecting
+                      ? null
+                      : () async {
+                          final url = urlController.text.trim();
+                          if (url.isEmpty || url == 'https://') {
+                            setDialogState(() {
+                              detectError = '请输入地址';
+                            });
+                            return;
+                          }
+
+                          // 开始探测
+                          setDialogState(() {
+                            detecting = true;
+                            detectError = null;
+                            detectResult = null;
+                          });
+
+                          try {
+                            final detector = SourceDetector();
+                            final result = await detector.detect(url);
+
+                            // 探测成功，显示结果
+                            setDialogState(() {
+                              detectResult = result;
+                              detecting = false;
+                            });
+
+                            // 添加源
+                            await blogSource.addSource(
+                              url,
+                              name: nameController.text.isNotEmpty
+                                  ? nameController.text
+                                  : null,
+                              detectResult: result,
+                            );
+
+                            if (ctx.mounted) {
+                              Navigator.of(ctx).pop();
+                            }
+                          } on SourceDetectException catch (e) {
+                            setDialogState(() {
+                              detecting = false;
+                              detectError = e.message;
+                            });
+                          } catch (error) {
+                            setDialogState(() {
+                              detecting = false;
+                              detectError = error
+                                  .toString()
+                                  .replaceFirst('FormatException: ', '');
+                            });
+                          }
+                        },
+                  child: const Text('探测并添加'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -305,6 +443,7 @@ class SourceManagerSheet {
                   Navigator.of(ctx).pop();
                 }
               } catch (error) {
+                if (!context.mounted) return;
                 _showToast(context, error.toString());
               }
             },
@@ -393,6 +532,7 @@ class SourceManagerSheet {
                         Navigator.of(ctx).pop();
                       }
                     } catch (error) {
+                      if (!context.mounted) return;
                       _showToast(context, error.toString());
                     }
                   },

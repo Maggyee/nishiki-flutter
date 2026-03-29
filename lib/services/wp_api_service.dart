@@ -97,10 +97,10 @@ class WpApiService {
       return const [];
     }
 
-    return _fetchCategoriesFromSource(_blogSource.baseUrl.value.trim());
+    return fetchCategoriesFromSource(_blogSource.baseUrl.value.trim());
   }
 
-  Future<List<WpCategory>> _fetchCategoriesFromSource(
+  Future<List<WpCategory>> fetchCategoriesFromSource(
     String sourceBaseUrl,
   ) async {
     final uri = _buildUri('/wp-json/wp/v2/categories', {
@@ -147,7 +147,7 @@ class WpApiService {
       );
     }
 
-    return _fetchPostsFromSource(
+    return fetchPostsFromSource(
       _blogSource.baseUrl.value.trim(),
       search: search,
       categoryId: categoryId,
@@ -155,7 +155,7 @@ class WpApiService {
     );
   }
 
-  Future<List<WpPost>> _fetchPostsFromSource(
+  Future<List<WpPost>> fetchPostsFromSource(
     String sourceBaseUrl, {
     String search = '',
     int? categoryId,
@@ -214,25 +214,32 @@ class WpApiService {
     int page = 1,
   }) async {
     final merged = <WpPost>[];
+    final activeSources = _blogSource.activeSources;
     final perSourceTargetPage = page.clamp(1, 8);
 
     try {
-      for (final source in _blogSource.activeSources) {
-        for (
-          int currentPage = 1;
-          currentPage <= perSourceTargetPage;
-          currentPage++
-        ) {
-          final posts = await _fetchPostsFromSource(
-            source,
-            search: search,
-            categoryId: categoryId,
-            page: currentPage,
-          );
-          if (posts.isEmpty) {
-            break;
+      for (int currentPage = 1; currentPage <= perSourceTargetPage; currentPage++) {
+        final roundResults = await Future.wait(
+          activeSources.map((source) {
+            return fetchPostsFromSource(
+              source,
+              search: search,
+              categoryId: categoryId,
+              page: currentPage,
+            ).catchError((_) => const <WpPost>[]);
+          }),
+        );
+
+        var hadAnyPosts = false;
+        for (final posts in roundResults) {
+          if (posts.isNotEmpty) {
+            hadAnyPosts = true;
+            merged.addAll(posts);
           }
-          merged.addAll(posts);
+        }
+
+        if (!hadAnyPosts) {
+          break;
         }
       }
       return _sliceAggregatedPosts(merged, page: page);

@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/wp_models.dart';
+import '../../services/auth_service.dart';
 import '../../services/blog_source_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/sync_service.dart';
 import '../../theme/app_theme.dart';
 import '../common/settings_tile.dart';
+import 'login_sheet.dart';
 import 'profile_dialogs.dart';
 
 /// Profile Tab — 用户信息 + 阅读统计 + 设置 + 关于
@@ -17,6 +20,7 @@ class ProfileTab extends StatelessWidget {
     required this.profileEnterCtrl,
     required this.onOpenStatPostsScreen,
     required this.onShowSourceManager,
+    this.onLoginStateChanged,
   });
 
   // 头像呼吸脉冲动画
@@ -33,13 +37,17 @@ class ProfileTab extends StatelessWidget {
   }) onOpenStatPostsScreen;
   // 打开站点管理的回调
   final VoidCallback onShowSourceManager;
+  // 登录状态变更回调（登录/登出后通知父组件刷新）
+  final VoidCallback? onLoginStateChanged;
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final authService = AuthService();
     final bookmarkService = BookmarkService();
     final settings = SettingsService();
     final blogSource = BlogSourceService();
+    final isSignedIn = authService.isSignedIn;
 
     final likedCount = bookmarkService.likedCount;
     final savedCount = bookmarkService.savedCount;
@@ -53,7 +61,7 @@ class ProfileTab extends StatelessWidget {
         // ===== 顶部渐变 Header 区域（带入场动画） =====
         _buildAnimatedEntry(
           delay: 0.0,
-          child: _buildHeaderCard(context, isDark, sourceHost, fontScalePercent, settings),
+          child: _buildHeaderCard(context, isDark, sourceHost, fontScalePercent, settings, isSignedIn),
         ),
 
         // ===== 阅读统计卡片 =====
@@ -106,16 +114,133 @@ class ProfileTab extends StatelessWidget {
 
         const SizedBox(height: 12),
 
+        // ===== 账号与同步标题 =====
+        _buildAnimatedEntry(
+          delay: 0.3,
+          slideOffset: const Offset(-0.1, 0),
+          child: _buildSectionTitle(isDark, '账号与同步'),
+        ),
+
+        // ===== 账号与同步设置项 =====
+        _buildAnimatedEntry(
+          delay: 0.33,
+          child: SettingsCard(
+            tiles: [
+              if (!isSignedIn)
+                SettingsTileData(
+                  icon: Icons.login_rounded,
+                  iconColor: const Color(0xFF10B981),
+                  title: '登录 / 注册',
+                  subtitle: '登录后多端同步收藏和阅读记录',
+                  onTap: () async {
+                    HapticFeedback.lightImpact();
+                    final success = await LoginSheet.show(context);
+                    if (success) {
+                      onLoginStateChanged?.call();
+                    }
+                  },
+                ),
+              if (isSignedIn) ...[
+                SettingsTileData(
+                  icon: Icons.cloud_done_rounded,
+                  iconColor: const Color(0xFF10B981),
+                  title: '同步状态',
+                  subtitle: '已登录：${authService.currentUser?.email ?? ""}',
+                ),
+                SettingsTileData(
+                  icon: Icons.sync_rounded,
+                  iconColor: const Color(0xFF3B82F6),
+                  title: '立即同步',
+                  subtitle: '手动同步所有数据',
+                  onTap: () async {
+                    HapticFeedback.lightImpact();
+                    try {
+                      await SyncService().reconcileLocalState();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('✅ 同步完成'),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('同步失败：$e'),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        );
+                      }
+                    }
+                    onLoginStateChanged?.call();
+                  },
+                ),
+                SettingsTileData(
+                  icon: Icons.logout_rounded,
+                  iconColor: const Color(0xFFEF4444),
+                  title: '退出登录',
+                  subtitle: '退出后数据仅保存在本地',
+                  onTap: () async {
+                    HapticFeedback.heavyImpact();
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('确认退出登录？'),
+                        content: const Text('退出后数据将不再多端同步，但本地数据不会丢失。'),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('取消'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                            ),
+                            child: const Text('退出登录'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      try {
+                        await SyncService().disposeRealtime();
+                        await authService.logout();
+                      } catch (_) {
+                        await authService.clearSession();
+                      }
+                      onLoginStateChanged?.call();
+                    }
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
         // ===== 功能区标题 =====
         _buildAnimatedEntry(
-          delay: 0.35,
+          delay: 0.4,
           slideOffset: const Offset(-0.1, 0),
           child: _buildSectionTitle(isDark, '功能'),
         ),
 
         // ===== 功能设置项 =====
         _buildAnimatedEntry(
-          delay: 0.4,
+          delay: 0.45,
           child: SettingsCard(
             tiles: [
               SettingsTileData(
@@ -153,14 +278,14 @@ class ProfileTab extends StatelessWidget {
 
         // ===== 关于区标题 =====
         _buildAnimatedEntry(
-          delay: 0.5,
+          delay: 0.55,
           slideOffset: const Offset(-0.1, 0),
           child: _buildSectionTitle(isDark, '关于'),
         ),
 
         // ===== 关于设置项 =====
         _buildAnimatedEntry(
-          delay: 0.55,
+          delay: 0.6,
           child: SettingsCard(
             tiles: [
               SettingsTileData(
@@ -179,7 +304,7 @@ class ProfileTab extends StatelessWidget {
 
         // 底部版本标注
         _buildAnimatedEntry(
-          delay: 0.65,
+          delay: 0.7,
           child: Padding(
             padding: const EdgeInsets.only(top: 24),
             child: Center(
@@ -208,6 +333,7 @@ class ProfileTab extends StatelessWidget {
     String sourceHost,
     int fontScalePercent,
     SettingsService settings,
+    bool isSignedIn,
   ) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -279,9 +405,11 @@ class ProfileTab extends StatelessWidget {
             },
           ),
           const SizedBox(height: 14),
-          const Text(
-            '阅读者',
-            style: TextStyle(
+          Text(
+            isSignedIn
+                ? (AuthService().currentUser?.email ?? '阅读者')
+                : '阅读者',
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 20,
               fontWeight: FontWeight.w700,
@@ -290,7 +418,7 @@ class ProfileTab extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            sourceHost,
+            isSignedIn ? '☁️ 数据已云端同步' : sourceHost,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.8),
               fontSize: 13,
@@ -298,7 +426,9 @@ class ProfileTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            '你的阅读偏好、站点来源和阅读记录都会保存在这里。',
+            isSignedIn
+                ? '你的收藏、阅读记录和设置正在多设备间自动同步。'
+                : '登录后，收藏、阅读记录可在多设备间同步。',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.82),
@@ -306,12 +436,43 @@ class ProfileTab extends StatelessWidget {
               height: 1.45,
             ),
           ),
-          const SizedBox(height: 14),
+          // 未登录时显示快捷登录按钮
+          if (!isSignedIn) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 34,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  HapticFeedback.lightImpact();
+                  final success = await LoginSheet.show(context);
+                  if (success) {
+                    onLoginStateChanged?.call();
+                  }
+                },
+                icon: const Icon(Icons.login_rounded, size: 16),
+                label: const Text('登录 / 注册', style: TextStyle(fontSize: 13)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.2),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+              ),
+            ),
+          ],
+          if (isSignedIn) const SizedBox(height: 14),
           Wrap(
             alignment: WrapAlignment.center,
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (isSignedIn)
+                _buildProfileBadge(icon: Icons.cloud_done_rounded, label: '已同步'),
               _buildProfileBadge(icon: settings.themeModeIcon, label: settings.themeModeName),
               _buildProfileBadge(icon: Icons.text_fields_rounded, label: '$fontScalePercent% 字号'),
               _buildProfileBadge(icon: Icons.language_rounded, label: sourceHost),

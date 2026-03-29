@@ -10,7 +10,7 @@ class AppConfig {
 
   static const String aiProxyBaseUrl = String.fromEnvironment(
     'AI_PROXY_BASE_URL',
-    defaultValue: 'https://blogapi.nishiki.icu',
+    defaultValue: 'https://app.nishiki.tech',
   );
 
   static bool get hasAiProxy {
